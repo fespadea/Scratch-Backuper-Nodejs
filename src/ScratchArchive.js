@@ -25,6 +25,9 @@ class ScratchObject {
   _sessionID;
   _password;
 
+  _collected;
+  _gathered;
+
   /**
    * This function is async so I separated it out from the constructor. Gets
    * sessionID and xToken with password or xToken with sessionID. If you want to
@@ -55,9 +58,23 @@ class ScratchObject {
 
   constructor(baseData) {
     this.addData(baseData);
+    this._collected = {
+      collected: false,
+      xTokenUsedForCollecting: false,
+      sessionIDUsedForCollecting: false,
+    };
+    this._gathered = false;
   }
 
   collectData() {
+    if (
+      this._collected.collected &&
+      this._collected.xTokenUsedForCollecting === xToken &&
+      this._collected.sessionIDUsedForCollecting === sessionID
+    ) {
+      return;
+    }
+
     for (const func of Object.getOwnPropertyNames(
       Object.getPrototypeOf(this)
     )) {
@@ -67,6 +84,11 @@ class ScratchObject {
         } catch (AuthorizationError) {}
       }
     }
+
+    this._collected.collected = true;
+    this._collected.xTokenUsedForCollecting = xToken;
+    this._collected.sessionIDUsedForCollecting = sessionID;
+    this._gathered = false;
   }
 
   addUser(userData, scratchArchive, password, sessionID, xToken) {
@@ -93,33 +115,57 @@ class ScratchObject {
   }
 
   async gatherMoreScratchObjects(scratchArchive) {
-    for (const scratchDatas of Object.values(this)) {
+    if (this._gathered) {
+      return;
     }
+
+    // TODO: Might want to handle studio having authorization to pass on
+    const authUsername = this.author ? this.author.username : this.username;
+
     const projectFunction = (projectData) => {
       this.addProject(
         projectData,
         scratchArchive,
-        projectData.author.username === username ? this._xToken : undefined
+        authUsername && projectData.author.username === authUsername
+          ? this._xToken
+          : undefined
       );
     };
-    this.favorites.forEach(projectFunction);
-    this.sharedProjects.forEach(projectFunction);
-    this.unsharedProjects.forEach(projectFunction);
-    this.trashedProjects.forEach(projectFunction);
 
-    // don't bother passing any authorization tokens to another user since it
-    // can't be the same user
     const userFunction = (userData) => {
-      this.addUser(userData, scratchArchive);
+      const passAuth = authUsername && userData.username === authUsername;
+      this.addUser(
+        userData,
+        scratchArchive,
+        passAuth ? this._password : undefined,
+        passAuth ? this._sessionID : undefined,
+        passAuth ? this._xToken : undefined
+      );
     };
-    this.followers.forEach(userFunction);
-    this.following.forEach(userFunction);
 
     const studioFunction = (studioData) => {
       this.addStudio(studioData, scratchArchive);
     };
-    this.curatedStudios.forEach(studioFunction);
-    this.followedStudios.forEach(studioFunction);
+
+    const determineScratchType = (data) => {
+      if ("username" in data) {
+        userFunction(data);
+      } else if ("host" in data) {
+        studioFunction(data);
+      } else if ("author" in data) {
+        projectFunction(data);
+      }
+    };
+
+    for (const scratchDatas of Object.values(this)) {
+      if (Array.isArray(scratchDatas)) {
+        scratchDatas.forEach(determineScratchType);
+      } else {
+        determineScratchType(scratchDatas);
+      }
+    }
+
+    this._gathered = true;
   }
 }
 
@@ -376,7 +422,11 @@ export class ScratchArchiver {
       (project) => project.projectID === projectID
     );
     if (projectIndex) {
-      projects[projectIndex].activateAuthorization(xToken);
+      projects[projectIndex].activateAuthorization(
+        undefined,
+        undefined,
+        xToken
+      );
       return projects[projectIndex];
     }
     const project = new ScratchProject(projectID, baseData, username, xToken);
@@ -395,8 +445,17 @@ export class ScratchArchiver {
   }
 
   collectData() {
-    this.users.forEach((scratchObject) => scratchObject.collectData());
-    this.projects.forEach((scratchObject) => scratchObject.collectData());
-    this.studios.forEach((scratchObject) => scratchObject.collectData());
+    const collectScratchData = (scratchObject) => scratchObject.collectData();
+    this.users.forEach(collectScratchData);
+    this.projects.forEach(collectScratchData);
+    this.studios.forEach(collectScratchData);
+  }
+
+  gatherData() {
+    const gatherMoreScratchObjects = (scratchObject) =>
+      scratchObject.gatherMoreScratchObjects();
+    this.users.forEach(gatherMoreScratchObjects);
+    this.projects.forEach(gatherMoreScratchObjects);
+    this.studios.forEach(gatherMoreScratchObjects);
   }
 }
