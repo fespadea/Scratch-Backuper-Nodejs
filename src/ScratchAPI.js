@@ -7,6 +7,7 @@ import {
 } from "./apiRequest.js";
 import { JSDOM } from "jsdom";
 import he from "he";
+import { downloadProjectFromURL } from "@turbowarp/sbdl";
 
 const SCRATCH_API = "https://api.scratch.mit.edu";
 const USER_API = SCRATCH_API + "/users/";
@@ -15,6 +16,10 @@ const STUDIO_API = SCRATCH_API + "/studios/";
 
 const SCRATCH_SITE_API = "https://scratch.mit.edu/site-api";
 const SCRATCH_SITE = "https://scratch.mit.edu";
+// API acted inconsistent if I didn't include a timestamp
+const WAYBACK_MACHINE_AVAILABILITY_API =
+  "https://archive.org/wayback/available?timestamp=0&url=";
+const SCRATCH_PROJECT_DOWNLOAD_API = "https://projects.scratch.mit.edu/";
 
 let cachedXTokenAndSessionID = {};
 
@@ -222,6 +227,25 @@ export class ProjectAPI {
       xToken
     );
   }
+
+  static async getProjectFromWaybackMachine(projectID) {
+    const availabilityRequest = await apiRequest(
+      WAYBACK_MACHINE_AVAILABILITY_API +
+        SCRATCH_PROJECT_DOWNLOAD_API +
+        projectID
+    );
+
+    console.log(availabilityRequest);
+
+    if (availabilityRequest.archived_snapshots.closest) {
+      return await downloadProjectFromURL(
+        availabilityRequest.archived_snapshots.closest.url.replace(
+          "/" + SCRATCH_PROJECT_DOWNLOAD_API,
+          "_if/" + SCRATCH_PROJECT_DOWNLOAD_API
+        )
+      );
+    }
+  }
 }
 
 export class StudioAPI {
@@ -311,11 +335,9 @@ class CommentAPI {
   static async getCommentsWithReplies(url, xToken) {
     const comments = await getAllResults(url, xToken);
     for (const comment of comments) {
-      comment.replies = await getAllResults(
-        `${url}/${comment.id}/replies`,
-        xToken
-      );
+      comment.replies = getAllResults(`${url}/${comment.id}/replies`, xToken);
     }
+    await Promise.all(comments.map((comment) => comment.replies));
     return comments;
   }
 }

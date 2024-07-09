@@ -1,461 +1,117 @@
-import { downloadProjectFromID } from "@turbowarp/sbdl";
-import {
-  ProjectAPI,
-  StudioAPI,
-  UserAPI,
-  getSessionIDAndXToken,
-  getXToken,
-} from "./ScratchAPI.js";
+import { ScratchProject, ScratchUser, ScratchStudio } from "./ScratchClasses";
 
-// TODO: Handle 404 requests
+export class ScratchArchive {
+  #authorizations;
 
-/**
- * Error that gets thrown if a function that requires authorization is run
- * without a way to get said authorization
- */
-class AuthorizationError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "AuthorizationError";
-  }
-}
-
-class ScratchObject {
-  _xToken;
-  _sessionID;
-  _password;
-
-  _collected;
-  _gathered;
-
-  /**
-   * This function is async so I separated it out from the constructor. Gets
-   * sessionID and xToken with password or xToken with sessionID. If you want to
-   * remove authorization for some reason, pass null to each parameter.
-   * @param {string} password
-   * @param {string} sessionID
-   * @param {string} xToken
-   */
-  async activateAuthorization(password, sessionID, xToken) {
-    if (password !== undefined) this._password = password;
-    if (this._password !== undefined) {
-      loginData = await getSessionIDAndXToken(username, this._password);
-      this._sessionID = loginData.sessionID;
-      this._xToken = loginData.xToken;
-    } else {
-      if (sessionID !== undefined) this._sessionID = sessionID;
-      if (this._sessionID !== undefined) {
-        this._xToken = await getXToken(sessionID);
-      } else {
-        if (xToken !== undefined) this._xToken = xToken;
-      }
-    }
-  }
-
-  addData(data) {
-    Object.assign(this, data);
-  }
-
-  constructor(baseData) {
-    this.addData(baseData);
-    this._collected = {
-      collected: false,
-      xTokenUsedForCollecting: false,
-      sessionIDUsedForCollecting: false,
-    };
-    this._gathered = false;
-  }
-
-  collectData() {
-    if (
-      this._collected.collected &&
-      this._collected.xTokenUsedForCollecting === xToken &&
-      this._collected.sessionIDUsedForCollecting === sessionID
-    ) {
-      return;
-    }
-
-    for (const func of Object.getOwnPropertyNames(
-      Object.getPrototypeOf(this)
-    )) {
-      if (func.search(/^add/) >= 0) {
-        try {
-          eval(`${func}()`);
-        } catch (AuthorizationError) {}
-      }
-    }
-
-    this._collected.collected = true;
-    this._collected.xTokenUsedForCollecting = xToken;
-    this._collected.sessionIDUsedForCollecting = sessionID;
-    this._gathered = false;
-  }
-
-  addUser(userData, scratchArchive, password, sessionID, xToken) {
-    scratchArchive.addUser(
-      userData.username,
-      userData,
-      password,
-      sessionID,
-      xToken
-    );
-  }
-
-  addProject(projectData, scratchArchive, xToken) {
-    scratchArchive.addProject(
-      projectData.projectID,
-      projectData,
-      projectData.username,
-      xToken
-    );
-  }
-
-  addStudio(studioData, scratchArchive) {
-    scratchArchive.addProject(studioData.studioID, studioData);
-  }
-
-  async gatherMoreScratchObjects(scratchArchive) {
-    if (this._gathered) {
-      return;
-    }
-
-    // TODO: Might want to handle studio having authorization to pass on
-    const authUsername = this.author ? this.author.username : this.username;
-
-    const projectFunction = (projectData) => {
-      this.addProject(
-        projectData,
-        scratchArchive,
-        authUsername && projectData.author.username === authUsername
-          ? this._xToken
-          : undefined
-      );
-    };
-
-    const userFunction = (userData) => {
-      const passAuth = authUsername && userData.username === authUsername;
-      this.addUser(
-        userData,
-        scratchArchive,
-        passAuth ? this._password : undefined,
-        passAuth ? this._sessionID : undefined,
-        passAuth ? this._xToken : undefined
-      );
-    };
-
-    const studioFunction = (studioData) => {
-      this.addStudio(studioData, scratchArchive);
-    };
-
-    const determineScratchType = (data) => {
-      if ("username" in data) {
-        userFunction(data);
-      } else if ("host" in data) {
-        studioFunction(data);
-      } else if ("author" in data) {
-        projectFunction(data);
-      }
-    };
-
-    for (const scratchDatas of Object.values(this)) {
-      if (Array.isArray(scratchDatas)) {
-        scratchDatas.forEach(determineScratchType);
-      } else {
-        determineScratchType(scratchDatas);
-      }
-    }
-
-    this._gathered = true;
-  }
-}
-
-/* urls to include
-user page
-/projects + pages
-/favorites + pages
-/studios_following + pages
-/studios + pages
-/following + pages
-/followers + pages
-*/
-class ScratchUser extends ScratchObject {
-  /**
-   *
-   * @param {string} username
-   * @param {object} [baseData={}]
-   * @param {string} password
-   * @param {string} sessionID
-   * @param {string} xToken
-   */
-  constructor(username, baseData = {}, password, sessionID, xToken) {
-    this.username = username;
-    this._password = password;
-    this._sessionID = sessionID;
-    this._xToken = xToken;
-    super(baseData);
-  }
-
-  async addUserInfo() {
-    const userData = await UserAPI.getUserInfo(this.username);
-    this.addData(userData);
-  }
-
-  async addFavorites() {
-    this.favorites = await UserAPI.getFavorites(this.username);
-  }
-
-  async addFollowers() {
-    this.followers = await UserAPI.getFollowers(this.username);
-  }
-
-  async addFollowing() {
-    this.following = await UserAPI.getFollowing(this.username);
-  }
-
-  async addCuratedStudios() {
-    this.curatedStudios = await UserAPI.getCuratedStudios(this.username);
-  }
-
-  async addSharedProjects() {
-    this.sharedProjects = await UserAPI.getSharedProjects(this.username);
-  }
-
-  async addUnsharedProjects() {
-    if (this._sessionID === undefined || this._xToken === undefined) {
-      this.activateAuthorization();
-      if (this._sessionID === undefined) {
-        throw new AuthorizationError(
-          "ScratchUser.addUnsharedProjects requires that sessionID or password be provided to this object."
-        );
-      }
-    }
-
-    this.unsharedProjects = await UserAPI.getUnsharedProjects(
-      this._sessionID,
-      this._xToken
-    );
-  }
-
-  async addTrashedProjects() {
-    if (this._sessionID === undefined || this._xToken === undefined) {
-      this.activateAuthorization();
-      if (this._sessionID === undefined) {
-        throw new AuthorizationError(
-          "ScratchUser.addTrashedProjects requires that sessionID or password be provided to this object."
-        );
-      }
-    }
-
-    this.trashedProjects = await UserAPI.getTrashedProjects(
-      this._sessionID,
-      this._xToken
-    );
-  }
-
-  async addProfileComments() {
-    this.profileComments = await UserAPI.getProfileComments(this.username);
-  }
-
-  async addFollowedStudios() {
-    this.followedStudios = await UserAPI.getFollowedStudios(this.username);
-  }
-}
-
-/* urls to include
-project page
-/remixTree
-/remixes
-/studios
-*/
-// add support to get data on parent remix (project that this project originally remixed, if applicable)
-class ScratchProject extends ScratchObject {
-  _xToken;
-
-  /**
-   *
-   * @param {string} projectID
-   * @param {object} [baseData={}]
-   * @param {string} username
-   * @param {string} xToken
-   */
-  constructor(projectID, baseData, username, xToken) {
-    this.id = projectID;
-    this.username = username;
-    this._xToken = xToken;
-    this.addData(baseData);
-  }
-
-  async addProjectInfo() {
-    const projectData = ProjectAPI.getProjectInfo(this.id, this._xToken);
-    this.addData(projectData);
-  }
-
-  async addRemixes() {
-    this.remixes = await ProjectAPI.getRemixes(this.id, this._xToken);
-  }
-
-  async addStudios() {
-    this.studios = await ProjectAPI.getStudios(
-      this.id,
-      this.username,
-      this._xToken
-    );
-  }
-
-  async addComments() {
-    this.comments = await ProjectAPI.getComments(
-      this.id,
-      this.username,
-      this._xToken
-    );
-  }
-
-  async addProject() {
-    const options = {
-      // May be called periodically with progress updates.
-      onProgress: (type, loaded, total) => {
-        // type is 'metadata', 'project', 'assets', or 'compress'
-        console.log(type, loaded / total);
-      },
-    };
-    const project = await downloadProjectFromID(this.id, options);
-
-    // TODO: Use Wayback machine as a backup
-
-    if (project.title !== "" && !this.title) {
-      this.title = project.title;
-    }
-    this.projectType = project.type;
-    this.projectArrayBuffer = project.arrayBuffer;
-  }
-
-  /**
-   * Exclude the project array buffer because it is unreadable by humans, and
-   * because we will provide a way to output the project as a Scratch file
-   * instead.
-   * @returns data in object excluding the project Array Buffer
-   */
-  toJSON() {
-    const data = {};
-    for (const property in this) {
-      if (property !== "projectArrayBuffer") {
-        data[property] = this[property];
-      }
-    }
-    return data;
-  }
-}
-
-/* urls to include
-studio page
-/comments
-/curators
-/activity
-*/
-class ScratchStudio extends ScratchObject {
-  /**
-   *
-   * @param {string} studioID
-   * @param {object} baseData
-   */
-  constructor(studioID, baseData) {
-    this.id = studioID;
-    super(baseData);
-  }
-
-  async addStudioInfo() {
-    const studioData = StudioAPI.getStudioInfo(this.id);
-    this.addData(studioData);
-  }
-
-  async addActivity() {
-    this.activity = await StudioAPI.getActivity(this.id);
-  }
-
-  async addComments() {
-    this.comments = await StudioAPI.getComments(this.id);
-  }
-
-  async addCurators() {
-    this.curators = await StudioAPI.getCurators(this.id);
-  }
-
-  async addManagers() {
-    this.managers = await StudioAPI.getManagers(this.id);
-  }
-
-  async addProjects() {
-    this.projects = await StudioAPI.getProjects(this.id);
-  }
-}
-
-export class ScratchArchiver {
   /**
    * Set up the arrays for the Scratch users, projects, and studios included in
    * this archive
+   * Also, set up the array for any authorizations provided.
    */
   constructor() {
     this.users = [];
     this.projects = [];
     this.studios = [];
+    this.#authorizations = {};
   }
 
-  addUser(username, baseData = {}, password, sessionID, xToken) {
-    const userIndex = users.find((user) => user.username === username);
-    if (userIndex) {
-      user[userIndex].activateAuthorization(password, sessionID, xToken);
-      return users[userIndex];
+  /**
+   *
+   * @param {string} username
+   * @param {string} [password=]
+   * @param {string} [xToken=]
+   * @param {string} [sessionID=]
+   */
+  async logIn(username, password, xToken, sessionID) {
+    const authData = { xToken, sessionID };
+    if (password && !sessionID) {
+      loginData = await getSessionIDAndXToken(username, password);
+      authData.sessionID = loginData.sessionID;
+      authData.xToken = loginData.xToken;
+    } else if (sessionID && !xToken) {
+      authData.xToken = await getXToken(sessionID);
     }
-    const user = new ScratchUser(
-      username,
-      baseData,
-      password,
-      sessionID,
-      xToken
-    );
-    this.users.push(user);
+    this.#authorizations[username] = authData;
+  }
+
+  getAuthorization(username) {
+    return username in this.#authorizations
+      ? this.#authorizations[username]
+      : {};
+  }
+
+  addUser(username, baseData = {}) {
+    const userIndex = users.find((user) => user.username === username);
+    const user = null;
+    if (userIndex) {
+      user = user[userIndex];
+    } else {
+      authData = this.getAuthorization(username);
+      user = new ScratchUser(
+        username,
+        baseData,
+        authData.sessionID,
+        authData.xToken
+      );
+      this.users.push(user);
+    }
     return user;
   }
 
-  addProject(projectID, baseData, username, xToken) {
+  addProject(projectID, baseData = {}, username) {
+    if (!username) username = baseData.username;
     const projectIndex = projects.find(
       (project) => project.projectID === projectID
     );
+    const project = null;
     if (projectIndex) {
-      projects[projectIndex].activateAuthorization(
-        undefined,
-        undefined,
-        xToken
+      project = projects[projectIndex];
+    } else {
+      authData = this.getAuthorization(username);
+      project = new ScratchProject(
+        projectID,
+        baseData,
+        username,
+        authData.xToken
       );
-      return projects[projectIndex];
+      this.projects.push(project);
     }
-    const project = new ScratchProject(projectID, baseData, username, xToken);
-    this.projects.push(project);
     return project;
   }
 
   addStudio(studioID, baseData) {
     const studioIndex = studios.find((studio) => studio.studioID === studioID);
+    const studio = null;
     if (studioIndex) {
       return studios[studioIndex];
+    } else {
+      studio = new ScratchStudio(studioID, baseData);
+      this.studios.push(studio);
     }
-    const studio = new ScratchStudio(studioID, baseData);
-    this.studios.push(studio);
     return studio;
   }
 
-  collectData() {
-    const collectScratchData = (scratchObject) => scratchObject.collectData();
-    this.users.forEach(collectScratchData);
-    this.projects.forEach(collectScratchData);
-    this.studios.forEach(collectScratchData);
+  async collectData() {
+    await Promise.all(
+      this.users
+        .concat(this.projects)
+        .concat(this.studios)
+        .map((scratchObject) => scratchObject.collectData())
+    );
   }
 
   gatherData() {
     const gatherMoreScratchObjects = (scratchObject) =>
-      scratchObject.gatherMoreScratchObjects();
+      scratchObject.gatherMoreScratchObjects(this);
     this.users.forEach(gatherMoreScratchObjects);
     this.projects.forEach(gatherMoreScratchObjects);
     this.studios.forEach(gatherMoreScratchObjects);
+  }
+
+  async completeDataSweeps(numSweeps = 1) {
+    for (let i = 0; i < numSweeps; i++) {
+      this.gatherData();
+      await this.collectData();
+    }
   }
 }

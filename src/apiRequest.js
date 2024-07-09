@@ -1,7 +1,7 @@
 import fetch from "cross-fetch";
 import Datastore from "@seald-io/nedb";
 import * as helper from "./helperFunctions.js";
-import { RateLimiter } from "limiter";
+// import { RateLimiter } from "limiter";
 
 export const XTOKEN_STRING = "x-token";
 export const LIMIT_STRING = "limit";
@@ -18,10 +18,11 @@ let markedIDs = new Set();
 let progressChecker = 0;
 let lastCheckerTime = Date.now();
 
-const apiCallLimiter = new RateLimiter({
-  tokensPerInterval: 10,
-  interval: "second",
-});
+// TODO: Implement Rate Limiter
+// const apiCallLimiter = new RateLimiter({
+//   tokensPerInterval: 10,
+//   interval: "second",
+// });
 
 /**
  *
@@ -121,7 +122,7 @@ export async function apiRequest(
   let notDone = true;
   let request;
   while (notDone) {
-    await apiCallLimiter.removeTokens(1);
+    // await apiCallLimiter.removeTokens(1);
     try {
       request = await fetch(url, options);
       if (!request.ok && request.status !== 404) {
