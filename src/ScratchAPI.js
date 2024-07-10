@@ -107,7 +107,7 @@ export class UserAPI {
   static async #getSiteAPIProjects(sessionID, siteApiAddition, xToken) {
     const options = {
       headers: {
-        Cookie: "scratchcsrftoken=a;scratchlanguage=en;",
+        Cookie: `scratchcsrftoken=a; scratchlanguage=en; scratchsessionsid=${sessionID}`,
       },
     };
     const unsharedProjects = await apiRequest(
@@ -118,7 +118,7 @@ export class UserAPI {
       xToken = getXToken(sessionID);
     }
     for (let i = 0; i < unsharedProjects.length; i++) {
-      projectID = unsharedProjects[i].pk;
+      const projectID = unsharedProjects[i].pk;
       unsharedProjects[i] = ProjectAPI.getProjectInfo(projectID, xToken);
     }
     return unsharedProjects;
@@ -234,8 +234,6 @@ export class ProjectAPI {
         SCRATCH_PROJECT_DOWNLOAD_API +
         projectID
     );
-
-    console.log(availabilityRequest);
 
     if (availabilityRequest.archived_snapshots.closest) {
       return await downloadProjectFromURL(

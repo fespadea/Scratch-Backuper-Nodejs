@@ -50,7 +50,7 @@ class ScratchObject {
     this._gathered = false;
   }
 
-  collectData() {
+  async collectData() {
     if (this._collected) return;
 
     for (const func of Object.getOwnPropertyNames(
@@ -58,8 +58,11 @@ class ScratchObject {
     )) {
       if (func.search(/^add/) >= 0) {
         try {
-          eval(`await this.${func}()`);
-        } catch (AuthorizationError) {}
+          console.log(`await this.${func}()`);
+          await eval(`this.${func}()`);
+        } catch (e) {
+          if (!(e instanceof AuthorizationError)) throw e;
+        }
       }
     }
 
@@ -67,23 +70,24 @@ class ScratchObject {
     this._gathered = false;
   }
 
-  async gatherMoreScratchObjects(scratchArchive) {
+  gatherMoreScratchObjects(scratchArchive) {
     if (this._gathered) {
       return;
     }
 
     const determineScratchType = (data) => {
-      if ("scratchteam" in data) {
-        scratchArchive.addUser(userData.username, userData);
-      } else if ("host" in data) {
-        scratchArchive.addProject(
-          projectData.projectID,
-          projectData,
-          projectData.username
-        );
-      } else if ("author" in data || "creator_id" in data) {
-        scratchArchive.addProject(studioData.studioID, studioData);
-      }
+      if (typeof data === Object)
+        if ("scratchteam" in data) {
+          scratchArchive.addUser(userData.username, userData);
+        } else if ("host" in data) {
+          scratchArchive.addProject(
+            projectData.projectID,
+            projectData,
+            projectData.username
+          );
+        } else if ("author" in data || "creator_id" in data) {
+          scratchArchive.addProject(studioData.studioID, studioData);
+        }
     };
 
     for (const scratchDatas of Object.values(this)) {
@@ -116,10 +120,10 @@ export class ScratchUser extends ScratchObject {
    * @param {string} xToken
    */
   constructor(username, baseData = {}, sessionID, xToken) {
-    this.username = username;
+    super(baseData);
+    if (username) this.username = username;
     this._sessionID = sessionID;
     this._xToken = xToken;
-    super(baseData);
   }
 
   async addUserInfo() {
@@ -202,10 +206,10 @@ export class ScratchProject extends ScratchObject {
    * @param {string} xToken
    */
   constructor(projectID, baseData, username, xToken) {
-    this.id = projectID;
-    this.author.username = username;
+    super(baseData);
+    if (projectID) this.id = projectID;
+    if (username) this.author.username = username;
     this._xToken = xToken;
-    this.addData(baseData);
   }
 
   async addProjectInfo() {
@@ -296,8 +300,8 @@ export class ScratchStudio extends ScratchObject {
    * @param {object} baseData
    */
   constructor(studioID, baseData) {
-    this.id = studioID;
     super(baseData);
+    if (studioID) this.id = studioID;
   }
 
   async addStudioInfo() {

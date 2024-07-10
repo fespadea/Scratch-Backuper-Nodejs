@@ -162,6 +162,11 @@ export async function apiRequest(
  * @returns
  */
 export function applyParametersToURL(url, params) {
+  for (const [param, value] of params.entries()) {
+    if (value === "undefined") {
+      delete params.delete(param, value);
+    }
+  }
   const paramString = params.toString();
   if (paramString === "") {
     return url;

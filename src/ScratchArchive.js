@@ -1,4 +1,9 @@
-import { ScratchProject, ScratchUser, ScratchStudio } from "./ScratchClasses";
+import {
+  ScratchProject,
+  ScratchUser,
+  ScratchStudio,
+} from "./ScratchClasses.js";
+import { getSessionIDAndXToken, getXToken } from "./ScratchAPI.js";
 
 export class ScratchArchive {
   #authorizations;
@@ -25,7 +30,7 @@ export class ScratchArchive {
   async logIn(username, password, xToken, sessionID) {
     const authData = { xToken, sessionID };
     if (password && !sessionID) {
-      loginData = await getSessionIDAndXToken(username, password);
+      const loginData = await getSessionIDAndXToken(username, password);
       authData.sessionID = loginData.sessionID;
       authData.xToken = loginData.xToken;
     } else if (sessionID && !xToken) {
@@ -41,12 +46,12 @@ export class ScratchArchive {
   }
 
   addUser(username, baseData = {}) {
-    const userIndex = users.find((user) => user.username === username);
-    const user = null;
+    const userIndex = this.users.find((user) => user.username === username);
+    let user = null;
     if (userIndex) {
       user = user[userIndex];
     } else {
-      authData = this.getAuthorization(username);
+      const authData = this.getAuthorization(username);
       user = new ScratchUser(
         username,
         baseData,
@@ -60,7 +65,7 @@ export class ScratchArchive {
 
   addProject(projectID, baseData = {}, username) {
     if (!username) username = baseData.username;
-    const projectIndex = projects.find(
+    const projectIndex = this.projects.find(
       (project) => project.projectID === projectID
     );
     const project = null;
@@ -80,7 +85,9 @@ export class ScratchArchive {
   }
 
   addStudio(studioID, baseData) {
-    const studioIndex = studios.find((studio) => studio.studioID === studioID);
+    const studioIndex = this.studios.find(
+      (studio) => studio.studioID === studioID
+    );
     const studio = null;
     if (studioIndex) {
       return studios[studioIndex];
