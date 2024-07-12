@@ -14,7 +14,7 @@ export class AuthorizationError extends Error {
   }
 }
 
-class ScratchObject {
+export class ScratchObject {
   _xToken;
   _sessionID;
 
@@ -23,7 +23,12 @@ class ScratchObject {
 
   addData(data) {
     if (data && data.code !== "NotFound") {
-      Object.assign(this, data);
+      for (const [key, value] of Object.entries(data)) {
+        if (value) {
+          this[key] = value;
+        }
+      }
+      // Object.assign(this, data);
     }
   }
 
@@ -50,55 +55,89 @@ class ScratchObject {
     this._gathered = false;
   }
 
-  async collectData() {
-    if (this._collected) return;
-
-    for (const func of Object.getOwnPropertyNames(
-      Object.getPrototypeOf(this)
-    )) {
-      if (func.search(/^add/) >= 0) {
-        try {
-          console.log(`await this.${func}()`);
-          await eval(`this.${func}()`);
-        } catch (e) {
-          if (!(e instanceof AuthorizationError)) throw e;
-        }
-      }
-    }
-
-    this._collected = true;
-    this._gathered = false;
+  async _childCollectData() {
+    throw new Error("_childCollectData() not implemented");
   }
 
-  gatherMoreScratchObjects(scratchArchive) {
-    if (this._gathered) {
-      return;
+  async collectData(checkCollected = true) {
+    if (checkCollected && this._collected) return;
+
+    // for (const func of Object.getOwnPropertyNames(
+    //   Object.getPrototypeOf(this)
+    // )) {
+    //   if (func.search(/^add/) >= 0) {
+    //     try {
+    //       console.log(`await this.${func}()`);
+    //       await eval(`this.${func}()`);
+    //     } catch (e) {
+    //       if (!(e instanceof AuthorizationError)) throw e;
+    //     }
+    //   }
+    // }
+
+    await this._childCollectData();
+
+    if (checkCollected) {
+      this._collected = true;
+      this._gathered = false;
+    }
+  }
+
+  hasGathered() {
+    return this._gathered;
+  }
+
+  setGathered(gathered) {
+    this._gathered = gathered;
+  }
+
+  gatherUsers() {
+    throw new Error("gatherUsers not implemented");
+  }
+
+  gatherProjects() {
+    throw new Error("gatherProjects not implemented");
+  }
+
+  gatherStudios() {
+    throw new Error("gatherStudios not implemented");
+  }
+
+  gatherObjects(checkGathered = true) {
+    if (checkGathered && this.hasGathered) {
+      return [];
     }
 
-    const determineScratchType = (data) => {
-      if (typeof data === Object)
-        if ("scratchteam" in data) {
-          scratchArchive.addUser(userData.username, userData);
-        } else if ("host" in data) {
-          scratchArchive.addProject(
-            projectData.projectID,
-            projectData,
-            projectData.username
+    const gatheredUsers = this.gatherUsers();
+    const gatheredProjects = this.gatherProjects();
+    const gatheredStudios = this.gatherStudios();
+
+    if (checkGathered) this.setGathered(true);
+
+    return { gatheredUsers, gatheredProjects, gatheredStudios };
+  }
+
+  _extendArray(array, object) {
+    if (object) {
+      array.push(...object);
+    }
+  }
+
+  _addCommentsToUsers(users, comments) {
+    if (comments) {
+      this._extendArray(
+        users,
+        comments.map((comment) => comment.author)
+      );
+      comments.forEach((comment) => {
+        if (comment.replies) {
+          this._extendArray(
+            users,
+            comment.replies.map((reply) => reply.author)
           );
-        } else if ("author" in data || "creator_id" in data) {
-          scratchArchive.addProject(studioData.studioID, studioData);
         }
-    };
-
-    for (const scratchDatas of Object.values(this)) {
-      if (Array.isArray(scratchDatas)) {
-        scratchDatas.forEach(determineScratchType);
-      } else {
-        determineScratchType(scratchDatas);
-      }
+      });
     }
-
-    this._gathered = true;
   }
 }
 
@@ -132,61 +171,113 @@ export class ScratchUser extends ScratchObject {
   }
 
   async addFavorites() {
-    this.favorites = await UserAPI.getFavorites(this.username);
+    const favorites = await UserAPI.getFavorites(this.username);
+    this.addData({ favorites });
   }
 
   async addFollowers() {
-    this.followers = await UserAPI.getFollowers(this.username);
+    const followers = await UserAPI.getFollowers(this.username);
+    this.addData({ followers });
   }
 
   async addFollowing() {
-    this.following = await UserAPI.getFollowing(this.username);
+    const following = await UserAPI.getFollowing(this.username);
+    this.addData({ following });
   }
 
   async addCuratedStudios() {
-    this.curatedStudios = await UserAPI.getCuratedStudios(this.username);
+    const curatedStudios = await UserAPI.getCuratedStudios(this.username);
+    this.addData({ curatedStudios });
   }
 
   async addSharedProjects() {
-    this.sharedProjects = await UserAPI.getSharedProjects(this.username);
+    const sharedProjects = await UserAPI.getSharedProjects(this.username);
+    this.addData({ sharedProjects });
   }
 
   async addUnsharedProjects() {
-    if (this._sessionID === undefined || this._xToken === undefined) {
-      if (this._sessionID === undefined) {
-        throw new AuthorizationError(
-          "ScratchUser.addUnsharedProjects requires that sessionID or password be provided to this object."
-        );
-      }
+    if (this._sessionID === undefined) {
+      return;
+      // throw new AuthorizationError(
+      //   "ScratchUser.addUnsharedProjects requires that sessionID or password be provided to this object."
+      // );
     }
 
-    this.unsharedProjects = await UserAPI.getUnsharedProjects(
+    const unsharedProjects = await UserAPI.getUnsharedProjects(
       this._sessionID,
       this._xToken
     );
+    this.addData({ unsharedProjects });
   }
 
   async addTrashedProjects() {
-    if (this._sessionID === undefined || this._xToken === undefined) {
-      if (this._sessionID === undefined) {
-        throw new AuthorizationError(
-          "ScratchUser.addTrashedProjects requires that sessionID or password be provided to this object."
-        );
-      }
+    if (this._sessionID === undefined) {
+      return;
+      // throw new AuthorizationError(
+      //   "ScratchUser.addTrashedProjects requires that sessionID or password be provided to this object."
+      // );
     }
 
-    this.trashedProjects = await UserAPI.getTrashedProjects(
+    const trashedProjects = await UserAPI.getTrashedProjects(
       this._sessionID,
       this._xToken
     );
+    this.addData({ trashedProjects });
   }
 
   async addProfileComments() {
-    this.profileComments = await UserAPI.getProfileComments(this.username);
+    const profileComments = await UserAPI.getProfileComments(this.username);
+    this.addData({ profileComments });
   }
 
   async addFollowedStudios() {
-    this.followedStudios = await UserAPI.getFollowedStudios(this.username);
+    const followedStudios = await UserAPI.getFollowedStudios(this.username);
+    this.addData({ followedStudios });
+  }
+
+  async _childCollectData() {
+    await Promise.all([
+      this.addUserInfo(),
+      this.addFavorites(),
+      this.addFollowers(),
+      this.addFollowing(),
+      this.addCuratedStudios(),
+      this.addSharedProjects(),
+      this.addUnsharedProjects(),
+      this.addTrashedProjects(),
+      this.addProfileComments(),
+      this.addFollowedStudios(),
+    ]);
+  }
+
+  gatherUsers() {
+    const users = [];
+    this._extendArray(users, this.followers);
+    this._extendArray(users, this.following);
+    this._addCommentsToUsers(users, this.comments);
+    return users;
+  }
+
+  gatherProjects() {
+    const projects = [];
+    this._extendArray(projects, this.sharedProjects);
+    this._extendArray(projects, this.unsharedProjects);
+    this._extendArray(projects, this.trashedProjects);
+    // needs usernames in case the user is removed so that we know which folder
+    // to put project in
+    this._extendArray(projects, this.favorites);
+    return projects;
+  }
+
+  gatherStudios() {
+    const studios = [];
+    // needs username so that we know which folder to put project in
+    // TODO: Maybe scrape scratch website
+    // https://scratch.mit.edu/studios/75048/curators
+    // has "Studio Host" under name
+    this._extendArray(studios, this.curatedStudios);
+    this._extendArray(studios, this.followedStudios);
+    return studios;
   }
 }
 
@@ -208,7 +299,10 @@ export class ScratchProject extends ScratchObject {
   constructor(projectID, baseData, username, xToken) {
     super(baseData);
     if (projectID) this.id = projectID;
-    if (username) this.author.username = username;
+    if (username) {
+      if (!this.author) this.author = {};
+      this.author.username = username;
+    }
     this._xToken = xToken;
   }
 
@@ -218,26 +312,31 @@ export class ScratchProject extends ScratchObject {
   }
 
   async addRemixes() {
-    this.remixes = await ProjectAPI.getRemixes(this.id, this._xToken);
+    const remixes = await ProjectAPI.getRemixes(this.id, this._xToken);
+    this.addData({ remixes });
+  }
+
+  async #handleUsernameRequiredCall(apiCall, dataName) {
+    try {
+      const username = this.author ? this.author.username : this.username;
+      const datas = await apiCall(this.id, username, this._xToken);
+      this.addData({ [dataName]: datas });
+    } catch (error) {
+      if (error.name !== "ProjectUsernameError") {
+        throw error;
+      }
+    }
   }
 
   async addStudios() {
-    this.studios = await ProjectAPI.getStudios(
-      this.id,
-      this.author.username,
-      this._xToken
-    );
+    this.#handleUsernameRequiredCall(ProjectAPI.getStudios, "studios");
   }
 
   async addComments() {
-    this.comments = await ProjectAPI.getComments(
-      this.id,
-      this.author.username,
-      this._xToken
-    );
+    this.#handleUsernameRequiredCall(ProjectAPI.getComments, "comments");
   }
 
-  async addProject() {
+  async #handleProjectAdd(apiCall, projectVariableName) {
     const options = {
       // May be called periodically with progress updates.
       onProgress: (type, loaded, total) => {
@@ -245,29 +344,101 @@ export class ScratchProject extends ScratchObject {
         console.log(type, loaded / total);
       },
     };
-    const project = {};
     try {
-      project = await downloadProjectFromID(this.id, options);
+      const project = await apiCall(this.id, options);
+      if (project) {
+        if (this.title) {
+          project.title = this.title;
+        } else {
+          if (project.title !== "") this.title = project.title;
+        }
+        this.addData({ [projectVariableName]: project });
+      }
     } catch (canNotAccessProjectError) {
       if (canNotAccessProjectError.name !== "CanNotAccessProjectError")
         throw canNotAccessProjectError;
+    }
+  }
 
-      try {
-        project = await ProjectAPI.getProjectFromWaybackMachine(this.id);
-      } catch (canNotAccessProjectError) {
-        if (canNotAccessProjectError.name !== "CanNotAccessProjectError")
-          throw canNotAccessProjectError;
-        return;
+  async addProjectFromWaybackMachine() {
+    let projectVariableName = "project";
+    if ("project" in this) projectVariableName = "waybackProject";
+    this.#handleProjectAdd(
+      ProjectAPI.getProjectFromWaybackMachine,
+      projectVariableName
+    );
+  }
+
+  async addProject() {
+    this.#handleProjectAdd(downloadProjectFromID, "project");
+    if (!("project" in this)) {
+      this.addProjectFromWaybackMachine;
+    } else if ("history" in this && "modified" in this.history) {
+      const waybackAvailability = getProjectWaybackAvailability(this.id);
+
+      if (
+        waybackAvailability.archived_snapshots &&
+        waybackAvailability.archived_snapshots.closest
+      ) {
+        const availableDate = new Date(
+          waybackAvailability.archived_snapshots.closest.timestamp
+        );
+        const lastModifiedDate = new Date(this.history.modified);
+
+        if (availableDate < lastModifiedDate) {
+          this.addProjectFromWaybackMachine();
+          if ("waybackProject" in this) {
+            this.waybackProject["date"] = availableDate;
+          }
+        }
       }
     }
+  }
 
-    if (project) {
-      if (project.title !== "" && !this.title) {
-        this.title = project.title;
-      }
-      this.projectType = project.type;
-      this.projectArrayBuffer = project.arrayBuffer;
+  async _childCollectData() {
+    // call these now because they don't require the project author's username,
+    // but don't await them till after the projectInfo call when we can call the
+    // rest of the data functions
+    const nonUsernameReliantCalls = [this.addRemixes(), this.addProject()];
+
+    if (!this.author || !this.author.username) {
+      await this.addProjectInfo();
+    } else {
+      // if we already have the project's username, then we don't need to await
+      // to get it before calling the username reliant functions
+      nonUsernameReliantCalls.push(this.addProjectInfo());
     }
+
+    await Promise.all([
+      ...nonUsernameReliantCalls,
+      this.addStudios(),
+      this.addComments(),
+    ]);
+  }
+
+  gatherUsers() {
+    const users = [];
+    // needs username to know where to store
+    this._extendArray(users, [this.author]);
+    _addCommentsToUsers(users, this.comments);
+    return users;
+  }
+
+  gatherProjects() {
+    const projects = [];
+    this._extendArray(projects, this.remixes);
+    if (this.remix) {
+      // these don't have username or userid (plus they don't have the project title)
+      this._extendArray(projects, [this.remix.parent, this.remix.root]);
+    }
+    return projects;
+  }
+
+  gatherStudios() {
+    const studios = [];
+    // needs host username to know which folder to put in
+    this._extendArray(studios, this.studios);
+    return studios;
   }
 
   /**
@@ -279,7 +450,7 @@ export class ScratchProject extends ScratchObject {
   toJSON() {
     const data = {};
     for (const property in this) {
-      if (property !== "projectArrayBuffer") {
+      if (property !== "project" && property !== "waybackProject") {
         data[property] = this[property];
       }
     }
@@ -310,22 +481,71 @@ export class ScratchStudio extends ScratchObject {
   }
 
   async addActivity() {
-    this.activity = await StudioAPI.getActivity(this.id);
+    const activity = await StudioAPI.getActivity(this.id);
+    this.addData({ activity });
   }
 
   async addComments() {
-    this.comments = await StudioAPI.getComments(this.id);
+    const comments = await StudioAPI.getComments(this.id);
+    this.addData({ comments });
   }
 
   async addCurators() {
-    this.curators = await StudioAPI.getCurators(this.id);
+    const curators = await StudioAPI.getCurators(this.id);
+    this.addData({ curators });
   }
 
   async addManagers() {
-    this.managers = await StudioAPI.getManagers(this.id);
+    const managers = await StudioAPI.getManagers(this.id);
+    this.addData({ managers });
   }
 
   async addProjects() {
-    this.projects = await StudioAPI.getProjects(this.id);
+    const projects = await StudioAPI.getProjects(this.id);
+    this.addData({ projects });
+  }
+
+  async _childCollectData() {
+    await Promise.all([
+      this.addStudioInfo(),
+      this.addActivity(),
+      this.addComments(),
+      this.addCurators(),
+      this.addManagers(),
+      this.addProjects(),
+    ]);
+  }
+
+  gatherUsers() {
+    const users = [];
+    // needs username to know where to store
+    if (this.host) this._extendArray([{ id: this.host }]);
+    this._extendArray(users, this.curators);
+    this._extendArray(users, this.managers);
+    this._extendArray(
+      users,
+      this.activity.map((act) => {
+        return { id: act.actor_id, username: act.username };
+      })
+    );
+    _addCommentsToUsers(users, this.comments);
+    return users;
+  }
+
+  gatherProjects() {
+    const projects = [];
+    this._extendArray(projects, this.projects);
+    this._extendArray(
+      projects,
+      this.activity.map((act) => {
+        return { id: act.project_id, title: act.project_title };
+      })
+    );
+    return projects;
+  }
+
+  gatherStudios() {
+    const studios = [];
+    return studios;
   }
 }

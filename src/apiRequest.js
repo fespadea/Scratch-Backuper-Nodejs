@@ -1,6 +1,6 @@
 import fetch from "cross-fetch";
 import Datastore from "@seald-io/nedb";
-import * as helper from "./helperFunctions.js";
+import { sleep } from "./helperFunctions.js";
 // import { RateLimiter } from "limiter";
 
 export const XTOKEN_STRING = "x-token";
@@ -111,7 +111,7 @@ export async function apiRequest(
 
     if (id in markedIDs) {
       while (id in markedIDs) {
-        await helper.sleep(1000);
+        await sleep(1000);
       }
       return await loadAPIRequest(url, options, returnFunc);
     } else {
@@ -131,8 +131,9 @@ export async function apiRequest(
         notDone = false;
       }
     } catch (error) {
+      console.log(url);
       console.error(error);
-      await helper.sleep(10000);
+      await sleep(10000);
     }
   }
   const data = await applyReturnFunc(request, returnFunc);
@@ -189,6 +190,9 @@ export async function getAllResults(url, xToken) {
   params.set(LIMIT_STRING, limit);
   params.set(OFFSET_STRING, offset);
   let singleList = await apiRequest(applyParametersToURL(url, params));
+  if (!singleList) {
+    return [];
+  }
   const all = singleList;
   while (singleList.length >= params.get(LIMIT_STRING)) {
     offset += limit;

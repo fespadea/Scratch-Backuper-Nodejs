@@ -3,3 +3,5 @@ node_modules/
 auth*.json
 cachedRequests/
 *.env
+notes.txt
+ScratchArchive/

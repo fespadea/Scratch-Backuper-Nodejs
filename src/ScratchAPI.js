@@ -23,6 +23,17 @@ const SCRATCH_PROJECT_DOWNLOAD_API = "https://projects.scratch.mit.edu/";
 
 let cachedXTokenAndSessionID = {};
 
+/**
+ * Error that gets thrown if a project api request that requires a username is
+ * unable to acquire said username
+ */
+export class ProjectUsernameError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ProjectUsernameError";
+  }
+}
+
 export async function getSessionIDAndXToken(username, password) {
   if (!(username in cachedXTokenAndSessionID)) {
     const options = {
@@ -205,14 +216,20 @@ export class ProjectAPI {
   static async #handleUsernameURL(projectID, username, xToken) {
     if (username === undefined) {
       const projectInfo = await this.getProjectInfo(projectID, xToken);
-      username = projectInfo.author.username;
+      if (projectInfo.author) {
+        username = projectInfo.author.username;
+      } else {
+        throw new ProjectUsernameError(
+          "Unable to get author's username for api request that requires the project author's username."
+        );
+      }
     }
     return USER_API + username + "/projects/";
   }
 
   static async getStudios(projectID, username, xToken) {
     return await getAllResults(
-      this.#handleUsernameURL(projectID, username, xToken) +
+      (await this.#handleUsernameURL(projectID, username, xToken)) +
         projectID +
         "/studios",
       xToken
@@ -221,26 +238,34 @@ export class ProjectAPI {
 
   static async getComments(projectID, username, xToken) {
     return await CommentAPI.getCommentsWithReplies(
-      this.#handleUsernameURL(projectID, username, xToken) +
+      (await this.#handleUsernameURL(projectID, username, xToken)) +
         projectID +
         "/comments",
       xToken
     );
   }
 
-  static async getProjectFromWaybackMachine(projectID) {
-    const availabilityRequest = await apiRequest(
+  static async getProjectWaybackAvailability(projectID) {
+    return await apiRequest(
       WAYBACK_MACHINE_AVAILABILITY_API +
         SCRATCH_PROJECT_DOWNLOAD_API +
         projectID
     );
+  }
 
-    if (availabilityRequest.archived_snapshots.closest) {
+  static async getProjectFromWaybackMachine(projectID, options) {
+    const availabilityRequest = getProjectWaybackAvailability(projectID);
+
+    if (
+      availabilityRequest.archived_snapshots &&
+      availabilityRequest.archived_snapshots.closest
+    ) {
       return await downloadProjectFromURL(
         availabilityRequest.archived_snapshots.closest.url.replace(
           "/" + SCRATCH_PROJECT_DOWNLOAD_API,
           "_if/" + SCRATCH_PROJECT_DOWNLOAD_API
-        )
+        ),
+        options
       );
     }
   }
@@ -309,13 +334,16 @@ class CommentAPI {
 
     const authorNode = commentNode.querySelector("#comment-user");
     const authorName = authorNode.getAttribute("data-comment-user");
-    const authorData = await UserAPI.getUserInfo(authorName);
+    const image = authorNode.querySelector(".avatar").getAttribute("src");
     comment.author = {
-      id: authorData.id,
-      username: authorData.username,
-      scratchteam: authorData.scratchteam,
-      image: authorData.profile.images["60x60"],
+      username: authorName,
+      image: image,
     };
+    const authorData = await UserAPI.getUserInfo(authorName);
+    if (authorData) {
+      comment.author.id = authorData.id;
+      comment.author.scratchteam = authorData.scratchteam;
+    }
 
     const replies = commentElement.getElementsByTagName("li");
     comment.reply_count = reply ? 0 : replies.length;

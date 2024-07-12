@@ -7,7 +7,8 @@ async function runArchive() {
   const fespadeaArchive = new ScratchArchive();
   await fespadeaArchive.logIn(username, password);
   fespadeaArchive.addUser(username);
-  await fespadeaArchive.completeDataSweeps(1);
+  await fespadeaArchive.completeDataSweeps(0);
+  await fespadeaArchive.storeData();
   console.log(fespadeaArchive);
 }
 
