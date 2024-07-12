@@ -59,15 +59,17 @@ export class ScratchArchive {
       : {};
   }
 
-  addUser(username, baseData = {}) {
-    const userIndex = this.users.find((user) => user.username === username);
-    let user = null;
-    if (userIndex) {
-      user[userIndex].addData(baseData);
-      return user[userIndex];
+  addUser(username, baseData = {}, level) {
+    const userIndex = this.users.findIndex(
+      (user) => user.username === username
+    );
+    if (level !== undefined) baseData["_level"] = level;
+    if (userIndex >= 0) {
+      this.users[userIndex].addData(baseData);
+      return this.users[userIndex];
     } else {
       const authData = this.getAuthorization(username);
-      user = new ScratchUser(
+      const user = new ScratchUser(
         username,
         baseData,
         authData.sessionID,
@@ -78,15 +80,16 @@ export class ScratchArchive {
     }
   }
 
-  addProject(projectID, baseData = {}, username) {
+  addProject(projectID, baseData = {}, username, level) {
     if (!username)
       username = baseData.author ? baseData.author.username : baseData.username;
-    const projectIndex = this.projects.find(
+    const projectIndex = this.projects.findIndex(
       (project) => project.projectID === projectID
     );
-    if (projectIndex) {
-      projects[projectIndex].addData(baseData);
-      return projects[projectIndex];
+    if (level !== undefined) baseData["_level"] = level;
+    if (projectIndex >= 0) {
+      this.projects[projectIndex].addData(baseData);
+      return this.projects[projectIndex];
     } else {
       const authData = this.getAuthorization(username);
       const project = new ScratchProject(
@@ -100,13 +103,14 @@ export class ScratchArchive {
     }
   }
 
-  addStudio(studioID, baseData) {
-    const studioIndex = this.studios.find(
+  addStudio(studioID, baseData = {}, level) {
+    const studioIndex = this.studios.findIndex(
       (studio) => studio.studioID === studioID
     );
-    if (studioIndex) {
-      studios[studioIndex].addData(baseData);
-      return studios[studioIndex];
+    if (level !== undefined) baseData["_level"] = level;
+    if (studioIndex >= 0) {
+      this.studios[studioIndex].addData(baseData);
+      return this.studios[studioIndex];
     } else {
       const studio = new ScratchStudio(studioID, baseData);
       this.studios.push(studio);
@@ -126,19 +130,36 @@ export class ScratchArchive {
 
   gatherFromScratchObject(scratchObject) {
     const gatheredObjects = scratchObject.gatherObjects();
-    gatheredObjects.gatheredUsers.forEach(this.addUser);
-    gatheredObjects.gatheredProjects.forEach(this.addProject);
-    gatheredObjects.gatheredStudios.forEach(this.addStudio);
+    gatheredObjects.gatheredUsers.forEach(
+      (user) => this.addUser(user.username, user),
+      this
+    );
+    gatheredObjects.gatheredProjects.forEach(
+      (project) => this.addProject(project.id, project),
+      this
+    );
+    gatheredObjects.gatheredStudios.forEach(
+      (studio) => this.addStudio(studio.id, studio),
+      this
+    );
   }
 
   gatherScratchObjects() {
-    this.users.forEach(this.gatherFromScratchObject);
-    this.projects.forEach(this.gatherFromScratchObject);
-    this.studios.forEach(this.gatherFromScratchObject);
+    this.users.forEach(this.gatherFromScratchObject, this);
+    this.projects.forEach(this.gatherFromScratchObject, this);
+    this.studios.forEach(this.gatherFromScratchObject, this);
   }
 
-  async completeDataSweeps(numSweeps = 0) {
+  async completeDataSweeps(numSweeps = -1) {
     let collectDataPromise = this.collectData();
+    if (numSweeps === -1) {
+      numSweeps = Math.max(
+        ...this.users
+          .concat(this.projects)
+          .concat(this.studios)
+          .map((scratchObject) => scratchObject.getLevel())
+      );
+    }
     for (let i = 0; i < numSweeps; i++) {
       await collectDataPromise;
       this.gatherScratchObjects();
@@ -171,7 +192,7 @@ export class ScratchArchive {
     }
   }
 
-  static async storeUser(user, path = DEFAULT_ARCHIVE_PATH) {
+  async storeUser(user, path = DEFAULT_ARCHIVE_PATH) {
     const username = user.username
       ? user.username
       : this.getUsernameFromID(user.id);
@@ -183,7 +204,8 @@ export class ScratchArchive {
     );
   }
 
-  static async storeProject(project, path = DEFAULT_ARCHIVE_PATH) {
+  async storeProject(project, path = DEFAULT_ARCHIVE_PATH) {
+    console.log(project);
     const username = project.username
       ? project.username
       : project.author.username
@@ -196,24 +218,28 @@ export class ScratchArchive {
       username
     )}/projects/${getValidFolderName(projectTitle)}/`;
     await Promise.all([
-      dumpJSON(projectFolder + `${getValidFilename(projectTitle)}.json`),
+      dumpJSON(
+        project,
+        projectFolder + `${getValidFilename(projectTitle)}.json`
+      ),
       dumpProject(project.project, projectFolder),
       dumpProject(project.waybackProject, projectFolder),
     ]);
   }
 
-  static async storeStudio(studio, path = DEFAULT_ARCHIVE_PATH) {
-    const username = studio.username
-      ? studio.username
-      : this.getUsernameFromID(studio.host);
+  async storeStudio(studio, path = DEFAULT_ARCHIVE_PATH) {
+    const username =
+      studio.managers && studio.managers.length > 0
+        ? studio.managers[0].username
+        : this.getUsernameFromID(studio.host);
     const studioTitle = studio.title
       ? studio.title
       : this.getStudioTitleFromID(studio.id);
     await dumpJSON(
       studio,
-      `${path}${getValidFolderName(username)}/studios/${getValidFilename(
+      `${path}${getValidFolderName(username)}/studios/${getValidFolderName(
         studioTitle
-      )}.json`
+      )}/${getValidFilename(studioTitle)}.json`
     );
   }
 
@@ -265,11 +291,9 @@ export class ScratchArchive {
     this.findIDToNameConversions();
 
     await Promise.all(
-      this.users.map((user) => ScratchArchive.storeUser(user, path)),
-      this.projects.map((project) =>
-        ScratchArchive.storeProject(project, path)
-      ),
-      this.studios.map((studio) => ScratchArchive.storeStudio(studio, path))
+      this.users.map((user) => this.storeUser(user, path), this),
+      this.projects.map((project) => this.storeProject(project, path), this),
+      this.studios.map((studio) => this.storeStudio(studio, path), this)
     );
   }
 }

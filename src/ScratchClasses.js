@@ -20,12 +20,19 @@ export class ScratchObject {
 
   _collected;
   _gathered;
+  _level;
 
   addData(data) {
     if (data && data.code !== "NotFound") {
       for (const [key, value] of Object.entries(data)) {
-        if (value) {
-          this[key] = value;
+        if (value !== undefined) {
+          if (key === "_level") {
+            if (this._level === undefined || this._level < value) {
+              this._level = value;
+            }
+          } else {
+            this[key] = value;
+          }
         }
       }
       // Object.assign(this, data);
@@ -49,10 +56,19 @@ export class ScratchObject {
     return authorizationUpdated;
   }
 
-  constructor(baseData) {
-    this.addData(baseData);
+  constructor(baseData, level) {
+    this._level = level;
     this._collected = false;
     this._gathered = false;
+    this.addData(baseData);
+  }
+
+  setLevel(level) {
+    this._level = level;
+  }
+
+  getLevel() {
+    return this._level;
   }
 
   async _childCollectData() {
@@ -104,13 +120,20 @@ export class ScratchObject {
   }
 
   gatherObjects(checkGathered = true) {
-    if (checkGathered && this.hasGathered) {
-      return [];
+    if (
+      ((this._level && this._level <= 0) || checkGathered) &&
+      this.hasGathered()
+    ) {
+      return { gatheredUsers: [], gatheredProjects: [], gatheredStudios: [] };
     }
 
-    const gatheredUsers = this.gatherUsers();
-    const gatheredProjects = this.gatherProjects();
-    const gatheredStudios = this.gatherStudios();
+    const applyLevel = (data) => {
+      return { ...data, _level: this._level - 1 };
+    };
+
+    const gatheredUsers = this.gatherUsers().map(applyLevel);
+    const gatheredProjects = this.gatherProjects().map(applyLevel);
+    const gatheredStudios = this.gatherStudios().map(applyLevel);
 
     if (checkGathered) this.setGathered(true);
 
@@ -138,6 +161,16 @@ export class ScratchObject {
         }
       });
     }
+  }
+
+  toJSON() {
+    const data = {};
+    for (const property in this) {
+      if (property.charAt(0) !== "_") {
+        data[property] = this[property];
+      }
+    }
+    return data;
   }
 }
 
@@ -307,7 +340,7 @@ export class ScratchProject extends ScratchObject {
   }
 
   async addProjectInfo() {
-    const projectData = ProjectAPI.getProjectInfo(this.id, this._xToken);
+    const projectData = await ProjectAPI.getProjectInfo(this.id, this._xToken);
     this.addData(projectData);
   }
 
@@ -338,11 +371,11 @@ export class ScratchProject extends ScratchObject {
 
   async #handleProjectAdd(apiCall, projectVariableName) {
     const options = {
-      // May be called periodically with progress updates.
-      onProgress: (type, loaded, total) => {
-        // type is 'metadata', 'project', 'assets', or 'compress'
-        console.log(type, loaded / total);
-      },
+      // // May be called periodically with progress updates.
+      // onProgress: (type, loaded, total) => {
+      //   // type is 'metadata', 'project', 'assets', or 'compress'
+      //   console.log(type, loaded / total);
+      // },
     };
     try {
       const project = await apiCall(this.id, options);
@@ -360,9 +393,10 @@ export class ScratchProject extends ScratchObject {
     }
   }
 
+  // add functions that cache downloaded projects
   async addProjectFromWaybackMachine() {
-    let projectVariableName = "project";
-    if ("project" in this) projectVariableName = "waybackProject";
+    const projectVariableName =
+      "_project" in this ? "_waybackProject" : "_project";
     this.#handleProjectAdd(
       ProjectAPI.getProjectFromWaybackMachine,
       projectVariableName
@@ -370,8 +404,8 @@ export class ScratchProject extends ScratchObject {
   }
 
   async addProject() {
-    this.#handleProjectAdd(downloadProjectFromID, "project");
-    if (!("project" in this)) {
+    this.#handleProjectAdd(downloadProjectFromID, "_project");
+    if (!("_project" in this)) {
       this.addProjectFromWaybackMachine;
     } else if ("history" in this && "modified" in this.history) {
       const waybackAvailability = getProjectWaybackAvailability(this.id);
@@ -387,7 +421,7 @@ export class ScratchProject extends ScratchObject {
 
         if (availableDate < lastModifiedDate) {
           this.addProjectFromWaybackMachine();
-          if ("waybackProject" in this) {
+          if ("_waybackProject" in this) {
             this.waybackProject["date"] = availableDate;
           }
         }
@@ -420,7 +454,7 @@ export class ScratchProject extends ScratchObject {
     const users = [];
     // needs username to know where to store
     this._extendArray(users, [this.author]);
-    _addCommentsToUsers(users, this.comments);
+    this._addCommentsToUsers(users, this.comments);
     return users;
   }
 
@@ -439,22 +473,6 @@ export class ScratchProject extends ScratchObject {
     // needs host username to know which folder to put in
     this._extendArray(studios, this.studios);
     return studios;
-  }
-
-  /**
-   * Exclude the project array buffer because it is unreadable by humans, and
-   * because we will provide a way to output the project as a Scratch file
-   * instead.
-   * @returns data in object excluding the project Array Buffer
-   */
-  toJSON() {
-    const data = {};
-    for (const property in this) {
-      if (property !== "project" && property !== "waybackProject") {
-        data[property] = this[property];
-      }
-    }
-    return data;
   }
 }
 
@@ -476,7 +494,7 @@ export class ScratchStudio extends ScratchObject {
   }
 
   async addStudioInfo() {
-    const studioData = StudioAPI.getStudioInfo(this.id);
+    const studioData = await StudioAPI.getStudioInfo(this.id);
     this.addData(studioData);
   }
 
@@ -519,7 +537,10 @@ export class ScratchStudio extends ScratchObject {
   gatherUsers() {
     const users = [];
     // needs username to know where to store
-    if (this.host) this._extendArray([{ id: this.host }]);
+    const hostUser = {};
+    if (this.host) hostUser.id = this.host;
+    if (this.username) hostUser.username = this.username;
+    if (Object.keys(hostUser).length > 0) this._extendArray([hostUser]);
     this._extendArray(users, this.curators);
     this._extendArray(users, this.managers);
     this._extendArray(
@@ -528,7 +549,7 @@ export class ScratchStudio extends ScratchObject {
         return { id: act.actor_id, username: act.username };
       })
     );
-    _addCommentsToUsers(users, this.comments);
+    this._addCommentsToUsers(users, this.comments);
     return users;
   }
 

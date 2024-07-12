@@ -229,7 +229,7 @@ export class ProjectAPI {
 
   static async getStudios(projectID, username, xToken) {
     return await getAllResults(
-      (await this.#handleUsernameURL(projectID, username, xToken)) +
+      (await ProjectAPI.#handleUsernameURL(projectID, username, xToken)) +
         projectID +
         "/studios",
       xToken
@@ -238,7 +238,7 @@ export class ProjectAPI {
 
   static async getComments(projectID, username, xToken) {
     return await CommentAPI.getCommentsWithReplies(
-      (await this.#handleUsernameURL(projectID, username, xToken)) +
+      (await ProjectAPI.#handleUsernameURL(projectID, username, xToken)) +
         projectID +
         "/comments",
       xToken
@@ -363,7 +363,12 @@ class CommentAPI {
     for (const comment of comments) {
       comment.replies = getAllResults(`${url}/${comment.id}/replies`, xToken);
     }
-    await Promise.all(comments.map((comment) => comment.replies));
+    const resolvedReplies = await Promise.all(
+      comments.map((comment) => comment.replies)
+    );
+    for (let i = 0; i < comments.length; i++) {
+      comments[i].replies = resolvedReplies[i];
+    }
     return comments;
   }
 }

@@ -1,7 +1,6 @@
 import fetch from "cross-fetch";
 import Datastore from "@seald-io/nedb";
-import { sleep } from "./helperFunctions.js";
-// import { RateLimiter } from "limiter";
+import { sleep, SimpleRateLimiter } from "./helperFunctions.js";
 
 export const XTOKEN_STRING = "x-token";
 export const LIMIT_STRING = "limit";
@@ -19,10 +18,7 @@ let progressChecker = 0;
 let lastCheckerTime = Date.now();
 
 // TODO: Implement Rate Limiter
-// const apiCallLimiter = new RateLimiter({
-//   tokensPerInterval: 10,
-//   interval: "second",
-// });
+const apiCallLimiter = new SimpleRateLimiter(1000, 10);
 
 /**
  *
@@ -32,6 +28,9 @@ let lastCheckerTime = Date.now();
  * @param {object} data
  */
 async function dumpAPIRequest(url, options, returnFunc, data) {
+  if (data === undefined) {
+    throw new Error("data cannot be undefined");
+  }
   const id = JSON.stringify({
     url: url,
     options: options,
@@ -100,7 +99,7 @@ export async function apiRequest(
 ) {
   const id =
     url +
-    (options ? ` - ${JSON.stringify(options)}` : "") +
+    (options !== undefined ? ` - ${JSON.stringify(options)}` : "") +
     (returnFunc === "json" ? "" : ` - {returnFunc: ${returnFunc}}`);
 
   if (cache) {
@@ -122,7 +121,8 @@ export async function apiRequest(
   let notDone = true;
   let request;
   while (notDone) {
-    // await apiCallLimiter.removeTokens(1);
+    // TODO: make rate limiter domain specific
+    await apiCallLimiter.removeTokens(1);
     try {
       request = await fetch(url, options);
       if (!request.ok && request.status !== 404) {
@@ -147,7 +147,7 @@ export async function apiRequest(
     console.log(
       progressChecker +
         " requests in " +
-        (lastCheckerTime - Date.now()) / 1000 +
+        (Date.now() - lastCheckerTime) / 1000 +
         " seconds since last check."
     );
     lastCheckerTime = Date.now();
