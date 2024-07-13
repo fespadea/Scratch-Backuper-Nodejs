@@ -254,7 +254,9 @@ export class ProjectAPI {
   }
 
   static async getProjectFromWaybackMachine(projectID, options) {
-    const availabilityRequest = getProjectWaybackAvailability(projectID);
+    const availabilityRequest = await ProjectAPI.getProjectWaybackAvailability(
+      projectID
+    );
 
     if (
       availabilityRequest.archived_snapshots &&

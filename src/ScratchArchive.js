@@ -205,7 +205,6 @@ export class ScratchArchive {
   }
 
   async storeProject(project, path = DEFAULT_ARCHIVE_PATH) {
-    console.log(project);
     const username = project.username
       ? project.username
       : project.author.username
@@ -222,8 +221,8 @@ export class ScratchArchive {
         project,
         projectFolder + `${getValidFilename(projectTitle)}.json`
       ),
-      dumpProject(project.project, projectFolder),
-      dumpProject(project.waybackProject, projectFolder),
+      dumpProject(project._project, projectFolder),
+      dumpProject(project._waybackProject, projectFolder),
     ]);
   }
 

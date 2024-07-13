@@ -397,32 +397,36 @@ export class ScratchProject extends ScratchObject {
   async addProjectFromWaybackMachine() {
     const projectVariableName =
       "_project" in this ? "_waybackProject" : "_project";
-    this.#handleProjectAdd(
+    await this.#handleProjectAdd(
       ProjectAPI.getProjectFromWaybackMachine,
       projectVariableName
     );
   }
 
   async addProject() {
-    this.#handleProjectAdd(downloadProjectFromID, "_project");
+    await this.#handleProjectAdd(downloadProjectFromID, "_project");
     if (!("_project" in this)) {
-      this.addProjectFromWaybackMachine;
+      await this.addProjectFromWaybackMachine();
     } else if ("history" in this && "modified" in this.history) {
-      const waybackAvailability = getProjectWaybackAvailability(this.id);
+      const waybackAvailability =
+        await ProjectAPI.getProjectWaybackAvailability(this.id);
 
       if (
         waybackAvailability.archived_snapshots &&
         waybackAvailability.archived_snapshots.closest
       ) {
         const availableDate = new Date(
-          waybackAvailability.archived_snapshots.closest.timestamp
+          waybackAvailability.archived_snapshots.closest.timestamp.replace(
+            /^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)$/,
+            "$4:$5:$6 $2/$3/$1"
+          )
         );
         const lastModifiedDate = new Date(this.history.modified);
 
         if (availableDate < lastModifiedDate) {
-          this.addProjectFromWaybackMachine();
+          await this.addProjectFromWaybackMachine();
           if ("_waybackProject" in this) {
-            this.waybackProject["date"] = availableDate;
+            this._waybackProject.date = availableDate;
           }
         }
       }

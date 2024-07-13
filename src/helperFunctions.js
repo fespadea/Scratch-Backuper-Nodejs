@@ -1,13 +1,15 @@
 import path from "path";
 import { promises as fs } from "fs";
+import { time } from "console";
 
 /**
  * @param {string} fileName
  * @returns string
  */
 export function getValidFilename(fileName) {
-  // return fileName.replace(/[ &\/\\#,+()$~%.'":*?<>{}]/g, "");
-  return fileName.replace(/[&\/\\#,+()$~%.'":*?<>{}]/g, "");
+  // TODO: replace these with similar unicode characters instead of just making
+  // them blank
+  return fileName.replace(/[&\/\\#,+()$~%'":*?<>{}]/g, "");
 }
 
 /**
@@ -15,7 +17,7 @@ export function getValidFilename(fileName) {
  * @returns string
  */
 export function getValidFolderName(folderName) {
-  const validFolderName = getValidFilename(folderName);
+  let validFolderName = getValidFilename(folderName);
   if (validFolderName.at(-1) === ".") {
     validFolderName += "_";
   }
@@ -33,19 +35,13 @@ export function sleep(ms) {
 
 export async function dumpJSON(jsonData, filePath) {
   const folderPath = path.dirname(filePath);
-  console.log(folderPath);
   await fs.mkdir(folderPath, { recursive: true });
   await fs.writeFile(filePath, JSON.stringify(jsonData, null, 2));
 }
 
 export async function dumpProject(project, folderPath) {
   if (project) {
-    await fs.mkdir(folderPath, { recursive: true }, (err) => {
-      if (err) {
-        return console.error(err);
-      }
-      console.log("Directory created successfully!");
-    });
+    await fs.mkdir(folderPath, { recursive: true });
     const fileName = getValidFilename(
       project.title +
         (project.date ? ` ${project.date.toISOString()}` : "") +
@@ -59,5 +55,30 @@ export async function dumpProject(project, folderPath) {
         if (err) console.log(err);
       }
     );
+  }
+}
+
+export class SimpleRateLimiter {
+  constructor(interval, tokensPerInterval) {
+    this.interval = interval;
+    this.tokensPerInterval = tokensPerInterval;
+    this.tokensLeft = tokensPerInterval;
+    this.lastTime = Date.now();
+  }
+
+  async removeTokens(tokens) {
+    const timeLeft = this.lastTime + this.interval - Date.now();
+    if (timeLeft <= 0) {
+      this.tokensLeft = this.tokensPerInterval;
+      this.lastTime = Date.now();
+    }
+    if (tokens <= this.tokensLeft) {
+      this.tokensLeft -= tokens;
+    } else {
+      const tokensToPass = tokens - this.tokensLeft;
+      this.tokensLeft = 0;
+      await sleep(timeLeft);
+      this.removeTokens(tokensToPass);
+    }
   }
 }
