@@ -63,15 +63,18 @@ export class SimpleRateLimiter {
     this.interval = interval;
     this.tokensPerInterval = tokensPerInterval;
     this.tokensLeft = tokensPerInterval;
-    this.lastTime = Date.now();
+    this.lastTime = 0;
   }
 
   async removeTokens(tokens) {
     const timeLeft = this.lastTime + this.interval - Date.now();
+    // console.log(`timeLeft: ${timeLeft}`);
     if (timeLeft <= 0) {
       this.tokensLeft = this.tokensPerInterval;
       this.lastTime = Date.now();
+    //   console.log(`timeLeft <= 0: ${timeLeft <= 0}`);
     }
+    // console.log(`tokens <= this.tokensLeft: ${tokens <= this.tokensLeft}`);
     if (tokens <= this.tokensLeft) {
       this.tokensLeft -= tokens;
     } else {
@@ -80,5 +83,6 @@ export class SimpleRateLimiter {
       await sleep(timeLeft);
       this.removeTokens(tokensToPass);
     }
+    // console.log(`this.tokensLeft: ${this.tokensLeft}`);
   }
 }

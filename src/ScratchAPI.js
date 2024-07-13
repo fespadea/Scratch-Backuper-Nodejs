@@ -7,7 +7,7 @@ import {
 } from "./apiRequest.js";
 import { JSDOM } from "jsdom";
 import he from "he";
-import { downloadProjectFromURL } from "@turbowarp/sbdl";
+import { downloadProjectFromID, downloadProjectFromURL } from "@turbowarp/sbdl";
 
 const SCRATCH_API = "https://api.scratch.mit.edu";
 const USER_API = SCRATCH_API + "/users/";
@@ -216,7 +216,7 @@ export class ProjectAPI {
   static async #handleUsernameURL(projectID, username, xToken) {
     if (username === undefined) {
       const projectInfo = await this.getProjectInfo(projectID, xToken);
-      if (projectInfo.author) {
+      if (projectInfo && projectInfo.author) {
         username = projectInfo.author.username;
       } else {
         throw new ProjectUsernameError(
@@ -243,6 +243,10 @@ export class ProjectAPI {
         "/comments",
       xToken
     );
+  }
+
+  static async getProjectFromScratch(projectID, options) {
+    return await downloadProjectFromID(projectID, options);
   }
 
   static async getProjectWaybackAvailability(projectID) {

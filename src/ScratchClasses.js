@@ -1,4 +1,3 @@
-import { downloadProjectFromID } from "@turbowarp/sbdl";
 import { ProjectAPI, StudioAPI, UserAPI } from "./ScratchAPI.js";
 
 // TODO: Handle 404 requests by scraping Wayback Machine
@@ -404,7 +403,7 @@ export class ScratchProject extends ScratchObject {
   }
 
   async addProject() {
-    await this.#handleProjectAdd(downloadProjectFromID, "_project");
+    await this.#handleProjectAdd(ProjectAPI.getProjectFromScratch, "_project");
     if (!("_project" in this)) {
       await this.addProjectFromWaybackMachine();
     } else if ("history" in this && "modified" in this.history) {
