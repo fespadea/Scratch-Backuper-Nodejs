@@ -146,22 +146,29 @@ export class UserAPI {
   }
 
   static async getProfileComments(username) {
-    const text = await apiRequest(
-      SCRATCH_SITE_API + "/comments/user/" + username,
-      {},
-      true,
-      "text"
-    );
-    const commentsDoc = new JSDOM(text).window.document;
-    const commentElements =
-      commentsDoc.getElementsByClassName("top-level-reply");
     const comments = [];
-    for (const commentElement of commentElements) {
-      const comment = await CommentAPI.convertCommentElementToObject(
-        commentElement
+    let pageNumber = 1;
+    let commentElements;
+    do {
+      const text = await apiRequest(
+        SCRATCH_SITE_API +
+          "/comments/user/" +
+          username +
+          "/?page=" +
+          pageNumber++,
+        {},
+        true,
+        "text"
       );
-      comments.push(comment);
-    }
+      const commentsDoc = new JSDOM(text).window.document;
+      commentElements = commentsDoc.getElementsByClassName("top-level-reply");
+      for (const commentElement of commentElements) {
+        const comment = await CommentAPI.convertCommentElementToObject(
+          commentElement
+        );
+        comments.push(comment);
+      }
+    } while (commentElements.length > 0);
 
     return comments;
   }
