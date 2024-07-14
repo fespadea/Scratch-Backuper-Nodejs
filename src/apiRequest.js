@@ -1,5 +1,6 @@
 import fetch from "cross-fetch";
 import Datastore from "@seald-io/nedb";
+import { URL } from "url";
 import { sleep, SimpleRateLimiter } from "./helperFunctions.js";
 
 export const XTOKEN_STRING = "x-token";
@@ -17,25 +18,21 @@ let markedIDs = new Set();
 let progressChecker = 0;
 let lastCheckerTime = Date.now();
 
-// TODO: Implement Rate Limiter
 const apiCallLimiter = new SimpleRateLimiter(1000, 10);
+
+export async function limitRate(url) {
+  await apiCallLimiter.removeTokens(1, url ? new URL(url).hostname : undefined);
+}
 
 /**
  *
- * @param {string} url
- * @param {object} options
- * @param {string} returnFunc
+ * @param {string} id
  * @param {object} data
  */
-async function dumpAPIRequest(url, options, returnFunc, data) {
+async function dumpAPIRequest(id, data) {
   if (data === undefined) {
     throw new Error("data cannot be undefined");
   }
-  const id = JSON.stringify({
-    url: url,
-    options: options,
-    returnFunc: returnFunc,
-  });
   const doc = {
     _id: id,
     data: data,
@@ -45,20 +42,18 @@ async function dumpAPIRequest(url, options, returnFunc, data) {
 
 /**
  *
- * @param {string} url
- * @param {object} options
- * @param {string} returnFunc
+ * @param {string} id
  * @returns
  */
-async function loadAPIRequest(url, options, returnFunc) {
-  const id = JSON.stringify({
-    url: url,
-    options: options,
-    returnFunc: returnFunc,
-  });
+async function loadAPIRequest(id) {
   const result = await cachedRequestsDB.findOneAsync({
     _id: id,
   });
+  if (result === undefined) {
+    await cachedRequestsDB.removeAsync({
+      _id: id,
+    });
+  }
   if (result === null) {
     return undefined;
   } else {
@@ -97,22 +92,23 @@ export async function apiRequest(
   cache = true,
   returnFunc = "json"
 ) {
-  const id =
-    url +
-    (options !== undefined ? ` - ${JSON.stringify(options)}` : "") +
-    (returnFunc === "json" ? "" : ` - {returnFunc: ${returnFunc}}`);
+  const id = JSON.stringify({
+    url: url,
+    options: options,
+    returnFunc: returnFunc,
+  });
 
   if (cache) {
-    const cachedData = await loadAPIRequest(url, options, returnFunc);
+    const cachedData = await loadAPIRequest(id);
     if (cachedData !== undefined) {
       return cachedData;
     }
 
-    if (id in markedIDs) {
-      while (id in markedIDs) {
+    if (markedIDs.has(id)) {
+      while (markedIDs.has(id)) {
         await sleep(1000);
       }
-      return await loadAPIRequest(url, options, returnFunc);
+      return await loadAPIRequest(id);
     } else {
       markedIDs.add(id);
     }
@@ -121,8 +117,7 @@ export async function apiRequest(
   let notDone = true;
   let request;
   while (notDone) {
-    // TODO: make rate limiter domain specific
-    await apiCallLimiter.removeTokens(1);
+    await limitRate(url);
     try {
       request = await fetch(url, options);
       if (!request.ok && request.status !== 404) {
@@ -139,7 +134,7 @@ export async function apiRequest(
   const data = await applyReturnFunc(request, returnFunc);
 
   if (cache) {
-    await dumpAPIRequest(url, options, returnFunc, data);
+    await dumpAPIRequest(id, data);
     markedIDs.delete(id);
   }
 

@@ -3,11 +3,13 @@ import {
   applyParametersToURL,
   getAllResults,
   getAllResultsDateBased,
+  limitRate,
   XTOKEN_STRING,
 } from "./apiRequest.js";
 import { JSDOM } from "jsdom";
 import he from "he";
 import { downloadProjectFromID, downloadProjectFromURL } from "@turbowarp/sbdl";
+import { sleep } from "./helperFunctions.js";
 
 const SCRATCH_API = "https://api.scratch.mit.edu";
 const USER_API = SCRATCH_API + "/users/";
@@ -246,7 +248,20 @@ export class ProjectAPI {
   }
 
   static async getProjectFromScratch(projectID, options) {
-    return await downloadProjectFromID(projectID, options);
+    // gets cancelled by return
+    while (true) {
+      await limitRate("http://projects.scratch.mit.edu/");
+      try {
+        return await downloadProjectFromID(projectID, options);
+      } catch (error) {
+        if (error.name !== "CanNotAccessProjectError") {
+          console.error(`Error with projectID ${projectID}: ${error.message}`);
+          await sleep(10000);
+        } else {
+          return undefined;
+        }
+      }
+    }
   }
 
   static async getProjectWaybackAvailability(projectID) {
@@ -266,13 +281,23 @@ export class ProjectAPI {
       availabilityRequest.archived_snapshots &&
       availabilityRequest.archived_snapshots.closest
     ) {
-      return await downloadProjectFromURL(
-        availabilityRequest.archived_snapshots.closest.url.replace(
-          "/" + SCRATCH_PROJECT_DOWNLOAD_API,
-          "_if/" + SCRATCH_PROJECT_DOWNLOAD_API
-        ),
-        options
+      const url = availabilityRequest.archived_snapshots.closest.url.replace(
+        "/" + SCRATCH_PROJECT_DOWNLOAD_API,
+        "_if/" + SCRATCH_PROJECT_DOWNLOAD_API
       );
+      while (true) {
+        await limitRate(url);
+        try {
+          return await downloadProjectFromURL(url, options);
+        } catch (error) {
+          if (error.name !== "CanNotAccessProjectError") {
+            console.error(`Error with url ${url}: ${error.message}`);
+            await sleep(10000);
+          } else {
+            return undefined;
+          }
+        }
+      }
     }
   }
 }

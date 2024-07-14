@@ -7,10 +7,15 @@ async function runArchive() {
   const fespadeaArchive = new ScratchArchive();
   // await fespadeaArchive.logIn(username, password);
   // fespadeaArchive.addUser("Fespadea_Tester", {}, 1);
-  fespadeaArchive.addUser("PaperBoy200", {}, 1);
-  await fespadeaArchive.completeDataSweeps();
-  await fespadeaArchive.storeData();
-  console.log(fespadeaArchive);
+  // fespadeaArchive.addUser("Paperboy200", {}, 1);
+  fespadeaArchive.addUser("100codelyoko", {}, 1);
+  // await fespadeaArchive.loadArchive();
+  await fespadeaArchive.completeDataSweeps(true);
+  // await fespadeaArchive.storeArchive();
+  // await fespadeaArchive.cleanUpArchive();
+  console.log(
+    fespadeaArchive.users.find((user) => user.username === "100codelyoko")
+  );
 }
 
 runArchive();

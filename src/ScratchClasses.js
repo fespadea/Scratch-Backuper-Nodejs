@@ -1,7 +1,5 @@
 import { ProjectAPI, StudioAPI, UserAPI } from "./ScratchAPI.js";
 
-// TODO: Handle 404 requests by scraping Wayback Machine
-
 /**
  * Error that gets thrown if a function that requires authorization is run
  * without a way to get said authorization
@@ -75,7 +73,7 @@ export class ScratchObject {
   }
 
   async collectData(checkCollected = true) {
-    if (checkCollected && this._collected) return;
+    if (checkCollected && this._collected) return false;
 
     // for (const func of Object.getOwnPropertyNames(
     //   Object.getPrototypeOf(this)
@@ -96,6 +94,7 @@ export class ScratchObject {
       this._collected = true;
       this._gathered = false;
     }
+    return true;
   }
 
   hasGathered() {
@@ -295,18 +294,12 @@ export class ScratchUser extends ScratchObject {
     this._extendArray(projects, this.sharedProjects);
     this._extendArray(projects, this.unsharedProjects);
     this._extendArray(projects, this.trashedProjects);
-    // needs usernames in case the user is removed so that we know which folder
-    // to put project in
     this._extendArray(projects, this.favorites);
     return projects;
   }
 
   gatherStudios() {
     const studios = [];
-    // needs username so that we know which folder to put project in
-    // TODO: Maybe scrape scratch website
-    // https://scratch.mit.edu/studios/75048/curators
-    // has "Studio Host" under name
     this._extendArray(studios, this.curatedStudios);
     this._extendArray(studios, this.followedStudios);
     return studios;
@@ -376,19 +369,14 @@ export class ScratchProject extends ScratchObject {
       //   console.log(type, loaded / total);
       // },
     };
-    try {
-      const project = await apiCall(this.id, options);
-      if (project) {
-        if (this.title) {
-          project.title = this.title;
-        } else {
-          if (project.title !== "") this.title = project.title;
-        }
-        this.addData({ [projectVariableName]: project });
+    const project = await apiCall(this.id, options);
+    if (project) {
+      if (this.title) {
+        project.title = this.title;
+      } else {
+        if (project.title !== "") this.title = project.title;
       }
-    } catch (canNotAccessProjectError) {
-      if (canNotAccessProjectError.name !== "CanNotAccessProjectError")
-        throw canNotAccessProjectError;
+      this.addData({ [projectVariableName]: project });
     }
   }
 
