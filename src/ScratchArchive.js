@@ -13,16 +13,18 @@ import {
 import { getFolders } from "./helperFunctions.js";
 import { loadJSONs } from "./helperFunctions.js";
 import { loadProjects } from "./helperFunctions.js";
-import { moveFolder } from "./helperFunctions.js";
+import { moveFile } from "./helperFunctions.js";
+import { isDirectory } from "./helperFunctions.js";
+import { getItemsInFolder } from "./helperFunctions.js";
 
 const DEFAULT_ARCHIVE_PATH = "./ScratchArchive/";
-const PROJECT_FOLDER = "/projects/";
-const STUDIO_FOLDER = "/studios/";
+const PROJECTS_FOLDER = "/projects/";
+const STUDIOS_FOLDER = "/studios/";
 
-const MISSING_USERNAME_INDICATOR = " -Unable to Acquire Username-";
-const MISSING_PROJECT_TILE_INDICATOR = " -Unable to Acquire Project Title-";
-const MISSING_STUDIO_TITLE_INDICATOR = " -Unable to Acquire Studio Title-";
-
+const MISSING_USERNAME_INDICATOR = "-Unable to Acquire Username-";
+const MISSING_PROJECT_TILE_INDICATOR = "-Unable to Acquire Project Title-";
+const MISSING_STUDIO_TITLE_INDICATOR = "-Unable to Acquire Studio Title-";
+const UNKNOWN_USER_INDICATOR = "-Unable to Identify User-";
 
 export class ScratchArchive {
   #authorizations;
@@ -199,7 +201,7 @@ export class ScratchArchive {
     if (userID in this.userIDToNames) {
       return this.userIDToNames[userID];
     } else {
-      return `${userID}${MISSING_USERNAME_INDICATOR}`;
+      return MISSING_USERNAME_INDICATOR;
     }
   }
 
@@ -207,7 +209,7 @@ export class ScratchArchive {
     if (projectID in this.projectIDToTitles) {
       return this.projectIDToTitles[projectID];
     } else {
-      return `${projectID}${MISSING_PROJECT_TILE_INDICATOR}`;
+      return MISSING_PROJECT_TILE_INDICATOR;
     }
   }
 
@@ -215,59 +217,116 @@ export class ScratchArchive {
     if (studioID in this.studioIDToTitles) {
       return this.studioIDToTitles[studioID];
     } else {
-      return `${studioID}${MISSING_STUDIO_TITLE_INDICATOR}`;
+      return MISSING_STUDIO_TITLE_INDICATOR;
     }
   }
 
-  async storeUser(user) {
-    const username = user.username
+  getIDAddition(scratchObject) {
+    if (scratchObject.id) return ` {${scratchObject.id}}`;
+    else return "";
+  }
+
+  getUserFileName(user, includeIDAddition = false) {
+    let username = user.username
       ? user.username
       : this.getUsernameFromID(user.id);
-    await dumpJSON(
-      user,
-      `${this.archivePath}${getValidFolderName(username)}/${getValidFilename(
-        username
-      )}.json`
+    if (includeIDAddition || username === MISSING_USERNAME_INDICATOR)
+      username += this.getIDAddition(user);
+    return getValidFilename(username);
+  }
+
+  getUserParentPath(user) {
+    return (
+      this.archivePath +
+      getValidFolderName(`${this.getUserFileName(user, true)}`) +
+      "/"
     );
   }
-  async storeProject(project) {
-    const username = project.username
-      ? project.username
-      : project.author && project.author.username
-      ? project.author.username
-      : this.getUsernameFromID(project.author.id);
-    const projectTitle = project.title
+
+  getUserPath(user) {
+    return this.getUserParentPath(user) + this.getUserFileName(user);
+  }
+
+  async storeUser(user) {
+    await dumpJSON(user, `${this.getUserPath(user)}.json`);
+  }
+
+  getProjectFileName(project, includeIDAddition = false) {
+    let projectTitle = project.title
       ? project.title
       : this.getProjectTitleFromID(project.id);
-    const projectFolder = `${this.archivePath}${getValidFolderName(
-      username
-    )}${PROJECT_FOLDER}${getValidFolderName(projectTitle)}/`;
+    if (includeIDAddition || projectTitle === MISSING_PROJECT_TILE_INDICATOR)
+      projectTitle += this.getIDAddition(project);
+    return getValidFilename(projectTitle);
+  }
+
+  getProjectParentPath(project) {
+    const userParentPath = this.getUserParentPath(
+      project.username
+        ? { username: project.username, id: project.creator_id }
+        : project.author
+        ? project.author.username
+          ? project.author
+          : {
+              username: this.getUsernameFromID(project.author.id),
+              id: project.author.id,
+            }
+        : { username: UNKNOWN_USER_INDICATOR }
+    );
+    return (
+      userParentPath +
+      PROJECTS_FOLDER +
+      getValidFolderName(`${this.getProjectFileName(project, true)}`) +
+      "/"
+    );
+  }
+
+  getProjectPath(project) {
+    return (
+      this.getProjectParentPath(project) + this.getProjectFileName(project)
+    );
+  }
+
+  async storeProject(project) {
+    const projectPath = this.getProjectPath(project);
     await Promise.all([
-      dumpJSON(
-        project,
-        projectFolder + `${getValidFilename(projectTitle)}.json`
-      ),
-      dumpProject(project._project, projectFolder),
-      dumpProject(project._waybackProject, projectFolder),
+      dumpJSON(project, `${projectPath}.json`),
+      dumpProject(project._project, projectPath),
+      dumpProject(project._waybackProject, projectPath),
     ]);
   }
 
-  async storeStudio(studio) {
-    const username =
-      studio.managers && studio.managers.length > 0
-        ? studio.managers[0].username
-        : this.getUsernameFromID(studio.host);
-    const studioTitle = studio.title
+  getStudioFileName(studio, includeIDAddition = false) {
+    let studioTitle = studio.title
       ? studio.title
       : this.getStudioTitleFromID(studio.id);
-    await dumpJSON(
-      studio,
-      `${this.archivePath}${getValidFolderName(
-        username
-      )}${STUDIO_FOLDER}${getValidFolderName(studioTitle)}/${getValidFilename(
-        studioTitle
-      )}.json`
+    if (includeIDAddition || studioTitle === MISSING_STUDIO_TITLE_INDICATOR)
+      studioTitle += this.getIDAddition(studio);
+    return getValidFilename(studioTitle);
+  }
+
+  getStudioParentPath(studio) {
+    const userParentPath = this.getUserParentPath(
+      studio.managers && studio.managers.length > 0
+        ? studio.managers[0]
+        : studio.host
+        ? { username: this.getUsernameFromID(studio.host), id: studio.host }
+        : { username: UNKNOWN_USER_INDICATOR }
     );
+    return (
+      userParentPath +
+      STUDIOS_FOLDER +
+      getValidFolderName(`${this.getStudioFileName(studio, true)}`) +
+      "/"
+    );
+  }
+
+  getStudioPath(studio) {
+    return this.getStudioParentPath(studio) + this.getStudioFileName(studio);
+  }
+
+  async storeStudio(studio) {
+    await dumpJSON(studio, `${this.getStudioPath(studio)}.json`);
   }
 
   async storeScratchObject(scratchObject) {
@@ -384,7 +443,7 @@ export class ScratchArchive {
         (async () => {
           await Promise.all(
             (
-              await getFolders(userFolder + PROJECT_FOLDER)
+              await getFolders(userFolder + PROJECTS_FOLDER)
             ).map(this.loadProject, this)
           );
         })()
@@ -393,7 +452,7 @@ export class ScratchArchive {
         (async () => {
           await Promise.all(
             (
-              await getFolders(userFolder + STUDIO_FOLDER)
+              await getFolders(userFolder + STUDIOS_FOLDER)
             ).map(this.loadStudio, this)
           );
         })()
@@ -402,77 +461,46 @@ export class ScratchArchive {
     await Promise.all(promises);
   }
 
+  async parseFileName(file) {
+    const userIDMatch = file.match(
+      /(.*\/)(([^\/]*)(?: \{(\d+)\}))?(\/|\.json|\.sb[23]?)$/
+    );
+    return {
+      parentPath: userIDMatch[1],
+      fileName: userIDMatch[2],
+      name: userIDMatch[3],
+      idAddition: userIDMatch[4],
+      id: userIDMatch[5],
+      type: userIDMatch[6],
+    };
+  }
+
+  async cleanUpFile(file) {
+    const { parentPath, fileName, name, idAddition, id, type } =
+      this.parseFileName(file);
+
+    let fileNameAddition = type;
+    if (type === "/") {
+      await Promise.all(getItemsInFolder(file).map(this.cleanUpFile));
+      fileNameAddition = idAddition + type;
+    }
+
+    let newFileName;
+    if (name === MISSING_USERNAME_INDICATOR)
+      newFileName = this.getUserFileName({ id: id });
+    else if (name === MISSING_PROJECT_TILE_INDICATOR)
+      newFileName = this.getProjectFileName({ id: id });
+    else if (name === MISSING_STUDIO_TITLE_INDICATOR)
+      newFileName = this.getStudioFileName({ id: id });
+    else return;
+
+    if (fileName !== newFileName) {
+      await moveFile(file, parentPath + newFileName + fileNameAddition);
+    }
+  }
+
   async cleanUpArchive() {
     this.findIDToNameConversions();
-    const userFolders = await getFolders(this.archivePath);
-    const promises = [];
-    for (let userFolder of userFolders) {
-      const userIDMatch = userFolder.match(
-        new RegExp("(.*/)((\\d+)" + MISSING_USERNAME_INDICATOR + ")/$")
-      );
-      if (userIDMatch) {
-        const newFolderName = getValidFolderName(
-          this.getUsernameFromID(userIDMatch[3])
-        );
-        console.log(userIDMatch);
-        if (userIDMatch[2] !== newFolderName) {
-          await moveFolder(userFolder, userIDMatch[1] + newFolderName);
-          userFolder = newFolderName;
-        }
-      }
-      promises.push(
-        (async () => {
-          await Promise.all(
-            (
-              await getFolders(userFolder + PROJECT_FOLDER)
-            ).map(async (projectFolder) => {
-              const projectIDMatch = projectFolder.match(
-                new RegExp(
-                  "(.*/)((\\d+)" + MISSING_PROJECT_TILE_INDICATOR + ")/$"
-                )
-              );
-              if (projectIDMatch) {
-                const newFolderName = getValidFolderName(
-                  this.getProjectTitleFromID(projectIDMatch[3])
-                );
-                if (projectIDMatch[2] !== newFolderName) {
-                  await moveFolder(
-                    projectFolder,
-                    projectIDMatch[1] + newFolderName
-                  );
-                }
-              }
-            }, this)
-          );
-        })()
-      );
-      promises.push(
-        (async () => {
-          await Promise.all(
-            (
-              await getFolders(userFolder + STUDIO_FOLDER)
-            ).map(async (studioFolder) => {
-              const studioIDMatch = studioFolder.match(
-                new RegExp(
-                  "(.*/)((\\d+)" + MISSING_STUDIO_TITLE_INDICATOR + ")/$"
-                )
-              );
-              if (studioIDMatch) {
-                const newFolderName = getValidFolderName(
-                  this.getProjectTitleFromID(studioIDMatch[3])
-                );
-                if (studioIDMatch[2] !== newFolderName) {
-                  await moveFolder(
-                    studioFolder,
-                    studioIDMatch[1] + newFolderName
-                  );
-                }
-              }
-            }, this)
-          );
-        })()
-      );
-    }
-    await Promise.all(promises);
+    await Promise.all(getItemsInFolder(this.archivePath).map(this.cleanUpFile));
   }
 }

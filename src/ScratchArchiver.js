@@ -8,14 +8,14 @@ async function runArchive() {
   // await fespadeaArchive.logIn(username, password);
   // fespadeaArchive.addUser("Fespadea_Tester", {}, 1);
   // fespadeaArchive.addUser("Paperboy200", {}, 1);
-  fespadeaArchive.addUser("100codelyoko", {}, 1);
-  // await fespadeaArchive.loadArchive();
-  await fespadeaArchive.completeDataSweeps(true);
-  // await fespadeaArchive.storeArchive();
+  // fespadeaArchive.addUser("100codelyoko", {}, 1);
+  fespadeaArchive.setArchivePath("./ScratchArchiveOld/");
+  await fespadeaArchive.loadArchive();
+  // await fespadeaArchive.completeDataSweeps(true);
+  fespadeaArchive.setArchivePath("./ScratchArchive/");
+  await fespadeaArchive.storeArchive();
   // await fespadeaArchive.cleanUpArchive();
-  console.log(
-    fespadeaArchive.users.find((user) => user.username === "100codelyoko")
-  );
+  // console.log(fespadeaArchive);
 }
 
 runArchive();
