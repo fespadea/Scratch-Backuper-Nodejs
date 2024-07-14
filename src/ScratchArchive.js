@@ -463,7 +463,7 @@ export class ScratchArchive {
 
   async parseFileName(file) {
     const userIDMatch = file.match(
-      /(.*\/)(([^\/]*)( \{(\d+)\})?)?(\/|\.json|\.sb[23]?)$/
+      /(.*\/)(([^/]*)( \{(\d+)\})?)?(\/|\.json|\.sb[23]?)$/
     );
     return {
       parentPath: userIDMatch[1],
