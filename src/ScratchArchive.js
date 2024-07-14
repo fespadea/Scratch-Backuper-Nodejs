@@ -463,7 +463,7 @@ export class ScratchArchive {
 
   async parseFileName(file) {
     const userIDMatch = file.match(
-      /(.*\/)(([^\/]*)(?: \{(\d+)\}))?(\/|\.json|\.sb[23]?)$/
+      /(.*\/)(([^\/]*)( \{(\d+)\})?)?(\/|\.json|\.sb[23]?)$/
     );
     return {
       parentPath: userIDMatch[1],
@@ -501,6 +501,6 @@ export class ScratchArchive {
 
   async cleanUpArchive() {
     this.findIDToNameConversions();
-    await Promise.all(getItemsInFolder(this.archivePath).map(this.cleanUpFile));
+    await this.cleanUpFile(ScratchArchive);
   }
 }
