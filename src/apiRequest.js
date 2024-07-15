@@ -2,9 +2,11 @@ import fetch from "cross-fetch";
 import Datastore from "@seald-io/nedb";
 import { URL } from "url";
 import { sleep, SimpleRateLimiter } from "./helperFunctions.js";
-import { downloadProjectFromID, downloadProjectFromURL } from "@turbowarp/sbdl";
+import { downloadProjectFromURL } from "@turbowarp/sbdl";
+import { removePrivateInformation } from "./helperFunctions.js";
 
 export const XTOKEN_STRING = "x-token";
+export const PROJECT_TOKEN_STRING = "token";
 export const LIMIT_STRING = "limit";
 export const OFFSET_STRING = "offset";
 export const DATE_LIMIT_STRING = "dateLimit";
@@ -41,6 +43,7 @@ export async function limitRate(url, scrape = false) {
  * @param {object} data
  */
 async function dumpAPIRequest(id, data) {
+  id = removePrivateInformation(id);
   if (data === undefined) {
     throw new Error("data cannot be undefined");
   }
@@ -58,6 +61,7 @@ async function dumpAPIRequest(id, data) {
  * @returns
  */
 async function loadAPIRequest(id) {
+  id = removePrivateInformation(id);
   const result = await cachedRequestsDB.findOneAsync({
     _id: id,
   });
@@ -88,6 +92,7 @@ async function loadAPIRequest(id) {
  * @returns
  */
 async function applyReturnFunc(request, returnFunc) {
+  // usually just response.json()
   return request.ok
     ? returnFunc === null
       ? request
@@ -96,7 +101,7 @@ async function applyReturnFunc(request, returnFunc) {
       : returnFunc === "text"
       ? await request.text()
       : await eval(`${Object.keys({ request })[0]}.${returnFunc}()`)
-    : null; // usually just response.json()
+    : null;
 }
 
 /**
@@ -243,41 +248,57 @@ export async function getAllResultsDateBased(url, xToken) {
   return all;
 }
 
-export async function downloadProject(projectToDownload, options) {
-  const cachedProject = loadAPIRequest(projectToDownload);
+export async function downloadProject(
+  projectDownloadURL,
+  options,
+  getURLWithParams = (url) => url
+) {
+  const cachedProject = await loadAPIRequest(projectDownloadURL);
   if (cachedProject !== undefined) {
     return JSON.parse(cachedProject);
   }
-  
-  let project;
-  let url;
-  let downloadFunction;
-  if (isNaN(projectToDownload)) {
-    url = projectToDownload;
-    downloadFunction = downloadProjectFromURL;
-  } else {
-    url = "http://projects.scratch.mit.edu/";
-    downloadFunction = downloadProjectFromID;
-  }
+
+  projectDownloadURLWithParams = await getURLWithParams(projectDownloadURL);
+
   let notDone = true;
+  let project;
   while (notDone) {
-    await limitRate(url, true);
+    await limitRate(projectDownloadURL, true);
     try {
-      project = await downloadFunction(projectToDownload, options);
+      project = await downloadProjectFromURL(
+        projectDownloadURLWithParams,
+        options
+      );
       notDone = false;
     } catch (error) {
-      if (error.name !== "CanNotAccessProjectError") {
-        console.error(
-          `Error with project ${projectToDownload}: ${error.message}`
-        );
-        await sleep(60000);
-      } else {
+      if (error.status === 503) {
+        console.error(`Project may be broken: ${projectDownloadURLWithParams}`);
+        project = {
+          title: "Broken Project",
+          type: "txt",
+          arrayBuffer: Buffer.from(
+            "This project failed to download from " +
+              projectDownloadURL +
+              " with a 503 error which may indicate that the projects is broken on Scratch." +
+              "\nI'm not sure what causes this." +
+              "\nAn example of a broken project can be found here: https://scratch.mit.edu/projects/958846" +
+              "\nThe Scratch player crashes and claims that something went wrong." +
+              "\nThese projects can't be downloaded as far as I know."
+          ),
+        };
+        notDone = false;
+      } else if (error.name === "CanNotAccessProjectError") {
         project = null;
         notDone = false;
+      } else {
+        console.error(
+          `Error with project ${projectDownloadURLWithParams}: ${error.message}`
+        );
+        await sleep(60000);
       }
     }
   }
 
-  dumpAPIRequest(projectToDownload, JSON.parse(project));
+  await dumpAPIRequest(projectDownloadURL, JSON.stringify(project));
   return project;
 }

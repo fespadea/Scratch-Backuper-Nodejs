@@ -369,7 +369,8 @@ export class ScratchProject extends ScratchObject {
       //   console.log(type, loaded / total);
       // },
     };
-    const project = await apiCall(this.id, options);
+    // _xToken only used by ProjectAPI.getProjectFromScratch
+    const project = await apiCall(this.id, options, this._xToken);
     if (project) {
       if (this.title) {
         project.title = this.title;

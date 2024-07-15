@@ -5,10 +5,12 @@ import {
   getAllResults,
   getAllResultsDateBased,
   limitRate,
+  PROJECT_TOKEN_STRING,
   XTOKEN_STRING,
 } from "./apiRequest.js";
 import { JSDOM } from "jsdom";
 import he from "he";
+import { ScratchProject } from "./ScratchClasses.js";
 
 const SCRATCH_API = "https://api.scratch.mit.edu";
 const USER_API = SCRATCH_API + "/users/";
@@ -131,7 +133,8 @@ export class UserAPI {
     }
     for (let i = 0; i < unsharedProjects.length; i++) {
       const projectID = unsharedProjects[i].pk;
-      unsharedProjects[i] = ProjectAPI.getProjectInfo(projectID, xToken);
+      console.log(xToken);
+      unsharedProjects[i] = await ProjectAPI.getProjectInfo(projectID, xToken);
     }
     return unsharedProjects;
   }
@@ -209,11 +212,13 @@ export class UserAPI {
 }
 
 export class ProjectAPI {
-  static async getProjectInfo(projectID, xToken) {
+  static async getProjectInfo(projectID, xToken, cache = true) {
     const params = new URLSearchParams();
     params.set(XTOKEN_STRING, xToken);
     return await apiRequest(
-      applyParametersToURL(PROJECT_API + projectID, params)
+      applyParametersToURL(PROJECT_API + projectID, params),
+      undefined,
+      cache
     );
   }
 
@@ -253,9 +258,28 @@ export class ProjectAPI {
     );
   }
 
-  static async getProjectFromScratch(projectID, options) {
-    // gets cancelled by return
-    return await downloadProject(projectID, options);
+  static async getProjectToken(projectID, xToken) {
+    const projectData = await this.getProjectInfo(projectID, xToken, false);
+    if (projectData) return projectData.project_token;
+    else return undefined;
+  }
+
+  static async getProjectFromScratch(projectID, options, xToken) {
+    const getURLWithParams = async (url) => {
+      const params = new URLSearchParams();
+      params.set(
+        PROJECT_TOKEN_STRING,
+        await ProjectAPI.getProjectToken(projectID, xToken)
+      );
+      return applyParametersToURL(url, params);
+    };
+
+    return await downloadProject(
+      SCRATCH_PROJECT_DOWNLOAD_API + projectID,
+      options,
+      getURLWithParams
+    );
+
     // while (true) {
     //   await limitRate("http://projects.scratch.mit.edu/", true);
     //   try {

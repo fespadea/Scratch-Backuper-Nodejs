@@ -296,3 +296,31 @@ export class SimpleRateLimiter {
     // console.log(`this.tokensLeft: ${this.tokensLeft}`);
   }
 }
+
+const UNSAFE_KEYS = [
+  "x-token",
+  "scratchsessionsid",
+  "token",
+  "password",
+  // "sessionID",
+  // "xToken",
+  // "scratchcsrftoken",
+];
+export function removePrivateInformation(unsafeString) {
+  let safeString = unsafeString;
+  for (const unsafeKey of UNSAFE_KEYS) {
+    const unsafeRegexes = [
+      new RegExp(
+        `\\\\?"?${unsafeKey}\\\\?"?:\\\\?"?(?:([^\\\\",}{]+)[\\\\",}])`,
+        "g"
+      ),
+      new RegExp(`${unsafeKey}=\\\\*"?([^"&\\\\]+)["&\\\\]`, "g"),
+    ];
+    for (const unsafeRegex of unsafeRegexes) {
+      for (const unsafeMatch of safeString.matchAll(unsafeRegex)) {
+        safeString = safeString.replace(unsafeMatch[1], "redacted");
+      }
+    }
+  }
+  return safeString;
+}
