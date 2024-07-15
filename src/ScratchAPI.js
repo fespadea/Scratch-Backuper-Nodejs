@@ -95,7 +95,15 @@ export async function getXToken(sessionID) {
 
 export class UserAPI {
   static async getUserInfo(username) {
-    return await apiRequest(USER_API + username);
+    if (username.length > 2) return await apiRequest(USER_API + username);
+    else {
+      const userData = await apiRequest(
+        SCRATCH_SITE_API + "/users/all/" + username
+      );
+      if (userData)
+        return { username: userData.user.username, id: userData.user.pk };
+      else return null;
+    }
   }
 
   static async getFavorites(username) {
