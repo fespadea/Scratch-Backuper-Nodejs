@@ -19,9 +19,19 @@ let progressChecker = 0;
 let lastCheckerTime = Date.now();
 
 const apiCallLimiter = new SimpleRateLimiter(1000, 10);
+const scrapeLimiter = new SimpleRateLimiter(60000, 15);
 
-export async function limitRate(url) {
-  await apiCallLimiter.removeTokens(1, url ? new URL(url).hostname : undefined);
+export async function limitRate(url, scrape = false) {
+  if (scrape)
+    await scrapeLimiter.removeTokens(
+      1,
+      url ? new URL(url).hostname : undefined
+    );
+  else
+    await apiCallLimiter.removeTokens(
+      1,
+      url ? new URL(url).hostname : undefined
+    );
 }
 
 /**
@@ -117,16 +127,26 @@ export async function apiRequest(
   let notDone = true;
   let request;
   while (notDone) {
-    await limitRate(url);
+    // I just check for api call vs scrape by seeing if the return is expected
+    // to be in json format (assume api calls are json)
+    await limitRate(url, returnFunc !== "json");
     try {
       request = await fetch(url, options);
       if (!request.ok && request.status !== 404) {
-        throw new Error(`ConnectionError ${request.status} with url: ${id}`);
+        if (isNaN(request.headers["Retry-After"]))
+          throw new Error(`ConnectionError ${request.status} with url: ${id}`);
+        else {
+          console.error(
+            new Error(
+              `Retrying again after ${request.headers["Retry-After"]} seconds: ${id}`
+            )
+          );
+          await sleep(request.headers["Retry-After"] * 1000);
+        }
       } else {
         notDone = false;
       }
     } catch (error) {
-      console.log(url);
       console.error(error);
       await sleep(10000);
     }

@@ -257,13 +257,13 @@ export class ProjectAPI {
   static async getProjectFromScratch(projectID, options) {
     // gets cancelled by return
     while (true) {
-      await limitRate("http://projects.scratch.mit.edu/");
+      await limitRate("http://projects.scratch.mit.edu/", true);
       try {
         return await downloadProjectFromID(projectID, options);
       } catch (error) {
         if (error.name !== "CanNotAccessProjectError") {
           console.error(`Error with projectID ${projectID}: ${error.message}`);
-          await sleep(10000);
+          await sleep(60000);
         } else {
           return undefined;
         }
@@ -293,13 +293,13 @@ export class ProjectAPI {
         "_if/" + SCRATCH_PROJECT_DOWNLOAD_API
       );
       while (true) {
-        await limitRate(url);
+        await limitRate(url, true);
         try {
           return await downloadProjectFromURL(url, options);
         } catch (error) {
           if (error.name !== "CanNotAccessProjectError") {
             console.error(`Error with url ${url}: ${error.message}`);
-            await sleep(10000);
+            await sleep(60000);
           } else {
             return undefined;
           }
