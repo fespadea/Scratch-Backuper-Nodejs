@@ -9,8 +9,6 @@ import {
 } from "./apiRequest.js";
 import { JSDOM } from "jsdom";
 import he from "he";
-import { downloadProjectFromID, downloadProjectFromURL } from "@turbowarp/sbdl";
-import { sleep } from "./helperFunctions.js";
 
 const SCRATCH_API = "https://api.scratch.mit.edu";
 const USER_API = SCRATCH_API + "/users/";

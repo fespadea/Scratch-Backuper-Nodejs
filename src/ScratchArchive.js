@@ -221,7 +221,7 @@ export class ScratchArchive {
     }
   }
 
-  getIDAddition(scratchObject) {
+  static getIDAddition(scratchObject) {
     if (scratchObject.id) return ` {${scratchObject.id}}`;
     else return "";
   }
@@ -231,7 +231,7 @@ export class ScratchArchive {
       ? user.username
       : this.getUsernameFromID(user.id);
     if (includeIDAddition || username === MISSING_USERNAME_INDICATOR)
-      username += this.getIDAddition(user);
+      username += ScratchArchive.getIDAddition(user);
     return getValidFilename(username);
   }
 
@@ -256,7 +256,7 @@ export class ScratchArchive {
       ? project.title
       : this.getProjectTitleFromID(project.id);
     if (includeIDAddition || projectTitle === MISSING_PROJECT_TILE_INDICATOR)
-      projectTitle += this.getIDAddition(project);
+      projectTitle += ScratchArchive.getIDAddition(project);
     return getValidFilename(projectTitle);
   }
 
@@ -301,7 +301,7 @@ export class ScratchArchive {
       ? studio.title
       : this.getStudioTitleFromID(studio.id);
     if (includeIDAddition || studioTitle === MISSING_STUDIO_TITLE_INDICATOR)
-      studioTitle += this.getIDAddition(studio);
+      studioTitle += ScratchArchive.getIDAddition(studio);
     return getValidFilename(studioTitle);
   }
 
