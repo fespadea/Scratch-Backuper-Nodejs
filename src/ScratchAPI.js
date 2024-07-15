@@ -1,6 +1,7 @@
 import {
   apiRequest,
   applyParametersToURL,
+  downloadProject,
   getAllResults,
   getAllResultsDateBased,
   limitRate,
@@ -256,19 +257,20 @@ export class ProjectAPI {
 
   static async getProjectFromScratch(projectID, options) {
     // gets cancelled by return
-    while (true) {
-      await limitRate("http://projects.scratch.mit.edu/", true);
-      try {
-        return await downloadProjectFromID(projectID, options);
-      } catch (error) {
-        if (error.name !== "CanNotAccessProjectError") {
-          console.error(`Error with projectID ${projectID}: ${error.message}`);
-          await sleep(60000);
-        } else {
-          return undefined;
-        }
-      }
-    }
+    return await downloadProject(projectID, options);
+    // while (true) {
+    //   await limitRate("http://projects.scratch.mit.edu/", true);
+    //   try {
+    //     return await downloadProjectFromID(projectID, options);
+    //   } catch (error) {
+    //     if (error.name !== "CanNotAccessProjectError") {
+    //       console.error(`Error with projectID ${projectID}: ${error.message}`);
+    //       await sleep(60000);
+    //     } else {
+    //       return undefined;
+    //     }
+    //   }
+    // }
   }
 
   static async getProjectWaybackAvailability(projectID) {
@@ -292,19 +294,20 @@ export class ProjectAPI {
         "/" + SCRATCH_PROJECT_DOWNLOAD_API,
         "_if/" + SCRATCH_PROJECT_DOWNLOAD_API
       );
-      while (true) {
-        await limitRate(url, true);
-        try {
-          return await downloadProjectFromURL(url, options);
-        } catch (error) {
-          if (error.name !== "CanNotAccessProjectError") {
-            console.error(`Error with url ${url}: ${error.message}`);
-            await sleep(60000);
-          } else {
-            return undefined;
-          }
-        }
-      }
+      return await downloadProject(url, options);
+      // while (true) {
+      //   await limitRate(url, true);
+      //   try {
+      //     return await downloadProjectFromURL(url, options);
+      //   } catch (error) {
+      //     if (error.name !== "CanNotAccessProjectError") {
+      //       console.error(`Error with url ${url}: ${error.message}`);
+      //       await sleep(60000);
+      //     } else {
+      //       return undefined;
+      //     }
+      //   }
+      // }
     }
   }
 }

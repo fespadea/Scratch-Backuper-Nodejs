@@ -2,6 +2,7 @@ import fetch from "cross-fetch";
 import Datastore from "@seald-io/nedb";
 import { URL } from "url";
 import { sleep, SimpleRateLimiter } from "./helperFunctions.js";
+import { downloadProjectFromID, downloadProjectFromURL } from "@turbowarp/sbdl";
 
 export const XTOKEN_STRING = "x-token";
 export const LIMIT_STRING = "limit";
@@ -48,6 +49,7 @@ async function dumpAPIRequest(id, data) {
     data: data,
   };
   await cachedRequestsDB.insertAsync(doc);
+  markedIDs.delete(id);
 }
 
 /**
@@ -65,6 +67,14 @@ async function loadAPIRequest(id) {
     });
   }
   if (result === null) {
+    if (markedIDs.has(id)) {
+      while (markedIDs.has(id)) {
+        await sleep(1000);
+      }
+      return await loadAPIRequest(id);
+    } else {
+      markedIDs.add(id);
+    }
     return undefined;
   } else {
     return result.data;
@@ -113,15 +123,6 @@ export async function apiRequest(
     if (cachedData !== undefined) {
       return cachedData;
     }
-
-    if (markedIDs.has(id)) {
-      while (markedIDs.has(id)) {
-        await sleep(1000);
-      }
-      return await loadAPIRequest(id);
-    } else {
-      markedIDs.add(id);
-    }
   }
 
   let notDone = true;
@@ -155,7 +156,6 @@ export async function apiRequest(
 
   if (cache) {
     await dumpAPIRequest(id, data);
-    markedIDs.delete(id);
   }
 
   if (++progressChecker % 100 === 0) {
@@ -241,4 +241,43 @@ export async function getAllResultsDateBased(url, xToken) {
     }
   }
   return all;
+}
+
+export async function downloadProject(projectToDownload, options) {
+  const cachedProject = loadAPIRequest(projectToDownload);
+  if (cachedProject !== undefined) {
+    return JSON.parse(cachedProject);
+  }
+  
+  let project;
+  let url;
+  let downloadFunction;
+  if (isNaN(projectToDownload)) {
+    url = projectToDownload;
+    downloadFunction = downloadProjectFromURL;
+  } else {
+    url = "http://projects.scratch.mit.edu/";
+    downloadFunction = downloadProjectFromID;
+  }
+  let notDone = true;
+  while (notDone) {
+    await limitRate(url, true);
+    try {
+      project = await downloadFunction(projectToDownload, options);
+      notDone = false;
+    } catch (error) {
+      if (error.name !== "CanNotAccessProjectError") {
+        console.error(
+          `Error with project ${projectToDownload}: ${error.message}`
+        );
+        await sleep(60000);
+      } else {
+        project = null;
+        notDone = false;
+      }
+    }
+  }
+
+  dumpAPIRequest(projectToDownload, JSON.parse(project));
+  return project;
 }
