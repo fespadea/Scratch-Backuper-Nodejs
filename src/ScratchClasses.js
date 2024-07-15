@@ -266,6 +266,11 @@ export class ScratchUser extends ScratchObject {
     this.addData({ followedStudios });
   }
 
+  async addActivity() {
+    const activity = await UserAPI.getActivity(this.username, this.id);
+    this.addData({ activity });
+  }
+
   async _childCollectData() {
     await Promise.all([
       this.addUserInfo(),
@@ -278,6 +283,7 @@ export class ScratchUser extends ScratchObject {
       this.addTrashedProjects(),
       this.addProfileComments(),
       this.addFollowedStudios(),
+      this.addActivity(),
     ]);
   }
 
@@ -286,6 +292,14 @@ export class ScratchUser extends ScratchObject {
     this._extendArray(users, this.followers);
     this._extendArray(users, this.following);
     this._addCommentsToUsers(users, this.comments);
+    this._extendArray(
+      users,
+      this.activity
+        .filter((act) => "user_username" in act)
+        .map((act) => {
+          return { id: act.user_id, title: act.user_username };
+        })
+    );
     return users;
   }
 
@@ -295,6 +309,22 @@ export class ScratchUser extends ScratchObject {
     this._extendArray(projects, this.unsharedProjects);
     this._extendArray(projects, this.trashedProjects);
     this._extendArray(projects, this.favorites);
+    this._extendArray(
+      projects,
+      this.activity
+        .filter((act) => "project_id" in act)
+        .map((act) => {
+          return { id: act.project_id, title: act.project_title };
+        })
+    );
+    this._extendArray(
+      projects,
+      this.activity
+        .filter((act) => "project_remix_id" in act)
+        .map((act) => {
+          return { id: act.project_remix_id, title: act.project_remix_title };
+        })
+    );
     return projects;
   }
 
@@ -302,6 +332,14 @@ export class ScratchUser extends ScratchObject {
     const studios = [];
     this._extendArray(studios, this.curatedStudios);
     this._extendArray(studios, this.followedStudios);
+    this._extendArray(
+      studios,
+      this.activity
+        .filter((act) => "studio_id" in act)
+        .map((act) => {
+          return { id: act.studio_id, title: act.studio_title };
+        })
+    );
     return studios;
   }
 }

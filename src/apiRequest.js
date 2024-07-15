@@ -115,7 +115,8 @@ export async function apiRequest(
   url,
   options,
   cache = true,
-  returnFunc = "json"
+  returnFunc = "json",
+  returnHeaders = false
 ) {
   const id = JSON.stringify({
     url: url,
@@ -158,9 +159,12 @@ export async function apiRequest(
     }
   }
   const data = await applyReturnFunc(request, returnFunc);
+  const returnVal = returnHeaders
+    ? { data, headers: request ? Object.fromEntries(request.headers) : null }
+    : data;
 
   if (cache) {
-    await dumpAPIRequest(id, data);
+    await dumpAPIRequest(id, returnVal);
   }
 
   if (++progressChecker % 100 === 0) {
@@ -173,7 +177,7 @@ export async function apiRequest(
     lastCheckerTime = Date.now();
   }
 
-  return data;
+  return returnVal;
 }
 
 /**

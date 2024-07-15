@@ -4,13 +4,12 @@ import {
   downloadProject,
   getAllResults,
   getAllResultsDateBased,
-  limitRate,
   PROJECT_TOKEN_STRING,
   XTOKEN_STRING,
 } from "./apiRequest.js";
 import { JSDOM } from "jsdom";
 import he from "he";
-import { ScratchProject } from "./ScratchClasses.js";
+import { subtractTimeStringFromDate } from "./helperFunctions.js";
 
 const SCRATCH_API = "https://api.scratch.mit.edu";
 const USER_API = SCRATCH_API + "/users/";
@@ -23,6 +22,7 @@ const SCRATCH_SITE = "https://scratch.mit.edu";
 const WAYBACK_MACHINE_AVAILABILITY_API =
   "https://archive.org/wayback/available?timestamp=0&url=";
 const SCRATCH_PROJECT_DOWNLOAD_API = "https://projects.scratch.mit.edu/";
+const SCRATCH_MESSAGES_AJAX_API = "https://scratch.mit.edu/messages/ajax/";
 
 let cachedXTokenAndSessionID = {};
 
@@ -208,6 +208,40 @@ export class UserAPI {
     } while (text !== null);
 
     return followedStudios;
+  }
+
+  static async getActivity(username, userID) {
+    const MAX = 200;
+    const { data: text, headers } = await apiRequest(
+      SCRATCH_MESSAGES_AJAX_API +
+        "user-activity/?user=" +
+        username +
+        "&max=" +
+        MAX,
+      {
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+        },
+      },
+      true,
+      "text",
+      true
+    );
+
+    const currentTime = new Date(headers.date);
+    const activityDoc = new JSDOM(text).window.document;
+    const activityElements = activityDoc.getElementsByTagName("li");
+    const activities = Promise.all(
+      Array.from(activityElements).map((activityElement) =>
+        ActivityAPI.convertActivityElementToObject(
+          activityElement,
+          currentTime,
+          userID
+        )
+      )
+    );
+
+    return activities;
   }
 }
 
@@ -433,5 +467,58 @@ class CommentAPI {
       comments[i].replies = resolvedReplies[i];
     }
     return comments;
+  }
+}
+
+class ActivityAPI {
+  static async convertActivityElementToObject(
+    activityElement,
+    currentTime,
+    userID
+  ) {
+    const activity = {};
+    // activity.id; // no way for me to get this
+
+    const typeElement = activityElement.querySelector("div");
+    activity.type = typeElement.textContent
+      .match(/\n[^\n]+\n([^\n]+)\n/)[1]
+      .trim();
+
+    const actorElement = activityElement.querySelector(".actor");
+    activity.actor_username = actorElement.textContent;
+    if (!userID) {
+      const userData = await getUserInfo(activity.actor_username);
+      if (userData) {
+        userID = userData.id;
+      }
+    }
+    if (userID) activity.actor_id = userID;
+
+    // not exact
+    const timeElement = activityElement.querySelector(".time");
+    activity.datetime_created = subtractTimeStringFromDate(
+      timeElement.textContent,
+      currentTime
+    );
+
+    const targetElements = activityElement.getElementsByTagName("a");
+    for (const targetElement of targetElements) {
+      let [_, type, id] = targetElement
+        .getAttribute("href")
+        .match(/\/([^/]+)s\/([^/]+)\//);
+      const name = targetElement.textContent.trim();
+      const isUser = type === "user";
+      if (type + "_id" in activity) type += "_remix";
+      if (isUser) {
+        const userData = await UserAPI.getUserInfo(name);
+        if (userData) activity[type + "_id"] = userData.id;
+        activity[type + "_username"] = name;
+      } else {
+        activity[type + "_id"] = id;
+        activity[type + "_title"] = name;
+      }
+    }
+
+    return activity;
   }
 }

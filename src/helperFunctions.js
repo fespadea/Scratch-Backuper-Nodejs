@@ -324,3 +324,29 @@ export function removePrivateInformation(unsafeString) {
   }
   return safeString;
 }
+
+export function subtractTimeStringFromDate(timeString, oldDate) {
+  const stringToNumConversions = {
+    minute: 60 * 1000,
+    hour: 60 * 60 * 1000,
+    day: 24 * 60 * 60 * 1000,
+    week: 7 * 24 * 60 * 60 * 1000,
+    month: 24 * 60 * 60 * 1000,
+  };
+  const getNumberFromTimeString = (numName) => {
+    // note that the space in the regex is a special space character &nbsp;
+    const numMatch = timeString.match(new RegExp(`(\\d\\d?) ${numName}`));
+    return numMatch ? Number(numMatch[1]) : 0;
+  };
+
+  const newDate = new Date(oldDate);
+  newDate.setMonth(newDate.getMonth() - getNumberFromTimeString("month"));
+  newDate.setDate(
+    newDate.getDate() -
+      getNumberFromTimeString("day") -
+      getNumberFromTimeString("week") * 7
+  );
+  newDate.setHours(newDate.getHours() - getNumberFromTimeString("hour"));
+  newDate.setMinutes(newDate.getMinutes() - getNumberFromTimeString("minute"));
+  return newDate;
+}
