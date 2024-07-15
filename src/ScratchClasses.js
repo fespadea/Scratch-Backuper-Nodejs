@@ -537,9 +537,11 @@ export class ScratchStudio extends ScratchObject {
     this._extendArray(users, this.managers);
     this._extendArray(
       users,
-      this.activity.map((act) => {
-        return { id: act.actor_id, username: act.username };
-      })
+      this.activity
+        .filter((act) => "username" in act)
+        .map((act) => {
+          return { id: act.actor_id, username: act.username };
+        })
     );
     this._addCommentsToUsers(users, this.comments);
     return users;
@@ -550,9 +552,11 @@ export class ScratchStudio extends ScratchObject {
     this._extendArray(projects, this.projects);
     this._extendArray(
       projects,
-      this.activity.map((act) => {
-        return { id: act.project_id, title: act.project_title };
-      })
+      this.activity
+        .filter((act) => "project_id" in act)
+        .map((act) => {
+          return { id: act.project_id, title: act.project_title };
+        })
     );
     return projects;
   }
