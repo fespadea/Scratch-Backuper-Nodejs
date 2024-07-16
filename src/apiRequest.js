@@ -140,7 +140,11 @@ export async function apiRequest(
     try {
       request = await fetch(url, options);
       if (!request.ok && request.status !== 404) {
-        if (isNaN(request.headers["Retry-After"]))
+        if (
+          isNaN(request.headers["Retry-After"]) ||
+          request.headers["Retry-After"] > 0 ||
+          request.headers["Retry-After"] <= 600
+        )
           throw new Error(`ConnectionError ${request.status} with url: ${id}`);
         else {
           console.error(
