@@ -1,9 +1,12 @@
 import fetch from "cross-fetch";
 import Datastore from "@seald-io/nedb";
 import { URL } from "url";
-import { sleep, SimpleRateLimiter } from "./helperFunctions.js";
 import { downloadProjectFromURL } from "@turbowarp/sbdl";
-import { removePrivateInformation } from "./helperFunctions.js";
+import {
+  sleep,
+  SimpleRateLimiter,
+  removePrivateInformation,
+} from "./helperFunctions.js";
 
 export const XTOKEN_STRING = "x-token";
 export const PROJECT_TOKEN_STRING = "token";

@@ -9,12 +9,12 @@ import {
   dumpProject,
   getValidFilename,
   getValidFolderName,
+  getFolders,
+  loadJSONs,
+  loadProjects,
+  moveFile,
+  getItemsInFolder,
 } from "./helperFunctions.js";
-import { getFolders } from "./helperFunctions.js";
-import { loadJSONs } from "./helperFunctions.js";
-import { loadProjects } from "./helperFunctions.js";
-import { moveFile } from "./helperFunctions.js";
-import { getItemsInFolder } from "./helperFunctions.js";
 
 const DEFAULT_ARCHIVE_PATH = "./ScratchArchive/";
 const PROJECTS_FOLDER = "/projects/";

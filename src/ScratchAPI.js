@@ -1,3 +1,5 @@
+import { JSDOM } from "jsdom";
+import he from "he";
 import {
   apiRequest,
   applyParametersToURL,
@@ -7,8 +9,6 @@ import {
   PROJECT_TOKEN_STRING,
   XTOKEN_STRING,
 } from "./apiRequest.js";
-import { JSDOM } from "jsdom";
-import he from "he";
 import { subtractTimeStringFromDate } from "./helperFunctions.js";
 
 const SCRATCH_API = "https://api.scratch.mit.edu";
@@ -52,15 +52,16 @@ export async function getSessionIDAndXToken(username, password) {
       body: JSON.stringify({ username: username, password: password }),
     };
 
-    const request = await apiRequest(
+    const { data, headers } = await apiRequest(
       "https://scratch.mit.edu/login/",
       options,
       false,
-      null
+      "json",
+      true
     );
 
-    const xToken = (await request.json())[0].token;
-    const sessionID = request.headers.get("set-cookie").match(/\"(.*)\"/)[0];
+    const xToken = data[0].token;
+    const sessionID = headers["set-cookie"].match(/\"(.*)\"/)[0];
 
     cachedXTokenAndSessionID[username] = {
       xToken: xToken,
