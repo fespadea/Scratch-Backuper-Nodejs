@@ -27,7 +27,7 @@ let lastCheckerTime = Date.now();
 const apiCallLimiter = new SimpleRateLimiter(1000, 10);
 const scrapeLimiter = new SimpleRateLimiter(60000, 15);
 
-export async function limitRate(url, scrape = false) {
+export async function limitRate(url, { scrape = false } = {}) {
   if (scrape)
     await scrapeLimiter.removeTokens(
       1,
@@ -116,18 +116,22 @@ async function applyReturnFunc(request, returnFunc) {
  */
 export async function apiRequest(
   url,
-  options,
-  cache = true,
-  returnFunc = "json",
-  returnHeaders = false
+  {
+    fetchOptions: options,
+    cache = true,
+    returnFunc = "json",
+    returnHeaders = false,
+    forceUpdate = false,
+  } = {}
 ) {
   const id = JSON.stringify({
-    url: url,
-    options: options,
-    returnFunc: returnFunc,
+    url,
+    options,
+    returnFunc,
+    returnHeaders,
   });
 
-  if (cache) {
+  if (cache && !forceUpdate) {
     const cachedData = await loadAPIRequest(id);
     if (cachedData !== undefined) {
       return cachedData;
@@ -139,7 +143,7 @@ export async function apiRequest(
   while (notDone) {
     // I just check for api call vs scrape by seeing if the return is expected
     // to be in json format (assume api calls are json)
-    await limitRate(url, returnFunc !== "json");
+    await limitRate(url, { scrape: returnFunc !== "json" });
     try {
       request = await fetch(url, options);
       if (!request.ok && request.status !== 404) {
@@ -213,7 +217,7 @@ export function applyParametersToURL(url, params) {
  * @param {string} xToken
  * @returns
  */
-export async function getAllResults(url, xToken) {
+export async function getAllResults(url, { xToken } = {}) {
   const params = new URLSearchParams();
   params.set(XTOKEN_STRING, xToken);
   const limit = 40;
@@ -236,7 +240,7 @@ export async function getAllResults(url, xToken) {
   return all;
 }
 
-export async function getAllResultsDateBased(url, xToken) {
+export async function getAllResultsDateBased(url, { xToken } = {}) {
   const params = new URLSearchParams();
   params.set(XTOKEN_STRING, xToken);
   params.set(LIMIT_STRING, 40);
@@ -261,8 +265,7 @@ export async function getAllResultsDateBased(url, xToken) {
 
 export async function downloadProject(
   projectDownloadURL,
-  options,
-  getURLWithParams = (url) => url
+  { sbDownloaderOptions: options, getURLWithParams = (url) => url } = {}
 ) {
   const cachedProject = await loadAPIRequest(projectDownloadURL);
   if (cachedProject !== undefined) {
@@ -274,7 +277,7 @@ export async function downloadProject(
   let notDone = true;
   let project;
   while (notDone) {
-    await limitRate(projectDownloadURL, true);
+    await limitRate(projectDownloadURL, { scrape: true });
     try {
       project = await downloadProjectFromURL(
         projectDownloadURLWithParams,

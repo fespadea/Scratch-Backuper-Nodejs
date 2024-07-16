@@ -54,10 +54,7 @@ export async function getSessionIDAndXToken(username, password) {
 
     const { data, headers } = await apiRequest(
       "https://scratch.mit.edu/login/",
-      options,
-      false,
-      "json",
-      true
+      { fetchOptions: options, cache: false, returnHeaders: true }
     );
 
     const xToken = data[0].token;
@@ -86,11 +83,10 @@ export async function getXToken(sessionID) {
       "X-Requested-With": "XMLHttpRequest",
     },
   };
-  const request = await apiRequest(
-    "https://scratch.mit.edu/session/",
-    options,
-    false
-  );
+  const request = await apiRequest("https://scratch.mit.edu/session/", {
+    fetchOptions: options,
+    cache: false,
+  });
   return request.user.token;
 }
 
@@ -127,7 +123,11 @@ export class UserAPI {
     return await getAllResults(USER_API + username + "/projects");
   }
 
-  static async #getSiteAPIProjects(sessionID, siteApiAddition, xToken) {
+  static async #getSiteAPIProjects(
+    sessionID,
+    siteApiAddition,
+    { xToken } = {}
+  ) {
     const options = {
       headers: {
         Cookie: `scratchcsrftoken=a; scratchlanguage=en; scratchsessionsid=${sessionID}`,
@@ -135,7 +135,7 @@ export class UserAPI {
     };
     const unsharedProjects = await apiRequest(
       SCRATCH_SITE_API + siteApiAddition,
-      options
+      { fetchOptions: options }
     );
     if (xToken === undefined) {
       xToken = getXToken(sessionID);
@@ -143,17 +143,23 @@ export class UserAPI {
     for (let i = 0; i < unsharedProjects.length; i++) {
       const projectID = unsharedProjects[i].pk;
       console.log(xToken);
-      unsharedProjects[i] = await ProjectAPI.getProjectInfo(projectID, xToken);
+      unsharedProjects[i] = await ProjectAPI.getProjectInfo(projectID, {
+        xToken,
+      });
     }
     return unsharedProjects;
   }
 
-  static async getUnsharedProjects(sessionID, xToken) {
-    return this.#getSiteAPIProjects(sessionID, "/projects/notshared/", xToken);
+  static async getUnsharedProjects(sessionID, { xToken } = {}) {
+    return this.#getSiteAPIProjects(sessionID, "/projects/notshared/", {
+      xToken,
+    });
   }
 
-  static async getTrashedProjects(sessionID, xToken) {
-    return this.#getSiteAPIProjects(sessionID, "/projects/trashed/", xToken);
+  static async getTrashedProjects(sessionID, { xToken } = {}) {
+    return this.#getSiteAPIProjects(sessionID, "/projects/trashed/", {
+      xToken,
+    });
   }
 
   static async getProfileComments(username) {
@@ -167,9 +173,7 @@ export class UserAPI {
           username +
           "/?page=" +
           pageNumber++,
-        {},
-        true,
-        "text"
+        { returnFunc: "text" }
       );
       const commentsDoc = new JSDOM(text).window.document;
       commentElements = commentsDoc.getElementsByClassName("top-level-reply");
@@ -196,12 +200,13 @@ export class UserAPI {
           "/studios_following/?page=" +
           pageNumber++,
         {
-          headers: {
-            "X-Requested-With": "XMLHttpRequest",
+          fetchOptions: {
+            headers: {
+              "X-Requested-With": "XMLHttpRequest",
+            },
           },
-        },
-        true,
-        "text"
+          returnFunc: "text",
+        }
       );
       const studiosDoc = new JSDOM(text).window.document;
       const studioElements = studiosDoc.getElementsByClassName("title");
@@ -219,7 +224,7 @@ export class UserAPI {
     return followedStudios;
   }
 
-  static async getActivity(username, userID) {
+  static async getActivity(username, { userID }) {
     const MAX = 200;
     const { data: text, headers } = await apiRequest(
       SCRATCH_MESSAGES_AJAX_API +
@@ -228,13 +233,14 @@ export class UserAPI {
         "&max=" +
         MAX,
       {
-        headers: {
-          "X-Requested-With": "XMLHttpRequest",
+        fetchOptions: {
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+          },
         },
-      },
-      true,
-      "text",
-      true
+        fetchOptions: "text",
+        returnHeaders: true,
+      }
     );
 
     const currentTime = new Date(headers.date);
@@ -245,7 +251,7 @@ export class UserAPI {
         ActivityAPI.convertActivityElementToObject(
           activityElement,
           currentTime,
-          userID
+          { userID }
         )
       )
     );
@@ -255,23 +261,24 @@ export class UserAPI {
 }
 
 export class ProjectAPI {
-  static async getProjectInfo(projectID, xToken, cache = true) {
+  static async getProjectInfo(projectID, { xToken, forceUpdate = true } = {}) {
     const params = new URLSearchParams();
     params.set(XTOKEN_STRING, xToken);
     return await apiRequest(
       applyParametersToURL(PROJECT_API + projectID, params),
-      undefined,
-      cache
+      { forceUpdate }
     );
   }
 
-  static async getRemixes(projectID, xToken) {
-    return await getAllResults(PROJECT_API + projectID + "/remixes", xToken);
+  static async getRemixes(projectID, { xToken } = {}) {
+    return await getAllResults(PROJECT_API + projectID + "/remixes", {
+      xToken,
+    });
   }
 
-  static async #handleUsernameURL(projectID, username, xToken) {
+  static async #handleUsernameURL(projectID, { username, xToken } = {}) {
     if (username === undefined) {
-      const projectInfo = await this.getProjectInfo(projectID, xToken);
+      const projectInfo = await this.getProjectInfo(projectID, { xToken });
       if (projectInfo && projectInfo.author) {
         username = projectInfo.author.username;
       } else {
@@ -283,59 +290,47 @@ export class ProjectAPI {
     return USER_API + username + "/projects/";
   }
 
-  static async getStudios(projectID, username, xToken) {
+  static async getStudios(projectID, { username, xToken } = {}) {
     return await getAllResults(
-      (await ProjectAPI.#handleUsernameURL(projectID, username, xToken)) +
+      (await ProjectAPI.#handleUsernameURL(projectID, { username, xToken })) +
         projectID +
         "/studios",
-      xToken
+      { xToken }
     );
   }
 
-  static async getComments(projectID, username, xToken) {
+  static async getComments(projectID, { username, xToken } = {}) {
     return await CommentAPI.getCommentsWithReplies(
-      (await ProjectAPI.#handleUsernameURL(projectID, username, xToken)) +
+      (await ProjectAPI.#handleUsernameURL(projectID, { username, xToken })) +
         projectID +
         "/comments",
-      xToken
+      { xToken }
     );
   }
 
-  static async getProjectToken(projectID, xToken) {
-    const projectData = await this.getProjectInfo(projectID, xToken, false);
+  static async getProjectToken(projectID, { xToken } = {}) {
+    const projectData = await this.getProjectInfo(projectID, {
+      xToken,
+      cache: false,
+    });
     if (projectData) return projectData.project_token;
     else return undefined;
   }
 
-  static async getProjectFromScratch(projectID, options, xToken) {
+  static async getProjectFromScratch(projectID, { options, xToken } = {}) {
     const getURLWithParams = async (url) => {
       const params = new URLSearchParams();
       params.set(
         PROJECT_TOKEN_STRING,
-        await ProjectAPI.getProjectToken(projectID, xToken)
+        await ProjectAPI.getProjectToken(projectID, { xToken })
       );
       return applyParametersToURL(url, params);
     };
 
-    return await downloadProject(
-      SCRATCH_PROJECT_DOWNLOAD_API + projectID,
-      options,
-      getURLWithParams
-    );
-
-    // while (true) {
-    //   await limitRate("http://projects.scratch.mit.edu/", true);
-    //   try {
-    //     return await downloadProjectFromID(projectID, options);
-    //   } catch (error) {
-    //     if (error.name !== "CanNotAccessProjectError") {
-    //       console.error(`Error with projectID ${projectID}: ${error.message}`);
-    //       await sleep(60000);
-    //     } else {
-    //       return undefined;
-    //     }
-    //   }
-    // }
+    return await downloadProject(SCRATCH_PROJECT_DOWNLOAD_API + projectID, {
+      sbDownloaderOptions: options,
+      getURLWithParams,
+    });
   }
 
   static async getProjectWaybackAvailability(projectID) {
@@ -346,7 +341,7 @@ export class ProjectAPI {
     );
   }
 
-  static async getProjectFromWaybackMachine(projectID, options) {
+  static async getProjectFromWaybackMachine(projectID, { options } = {}) {
     const availabilityRequest = await ProjectAPI.getProjectWaybackAvailability(
       projectID
     );
@@ -359,20 +354,7 @@ export class ProjectAPI {
         "/" + SCRATCH_PROJECT_DOWNLOAD_API,
         "_if/" + SCRATCH_PROJECT_DOWNLOAD_API
       );
-      return await downloadProject(url, options);
-      // while (true) {
-      //   await limitRate(url, true);
-      //   try {
-      //     return await downloadProjectFromURL(url, options);
-      //   } catch (error) {
-      //     if (error.name !== "CanNotAccessProjectError") {
-      //       console.error(`Error with url ${url}: ${error.message}`);
-      //       await sleep(60000);
-      //     } else {
-      //       return undefined;
-      //     }
-      //   }
-      // }
+      return await downloadProject(url, { sbDownloaderOptions: options });
     }
   }
 }
@@ -464,10 +446,12 @@ class CommentAPI {
     return comment;
   }
 
-  static async getCommentsWithReplies(url, xToken) {
-    const comments = await getAllResults(url, xToken);
+  static async getCommentsWithReplies(url, { xToken } = {}) {
+    const comments = await getAllResults(url, { xToken });
     for (const comment of comments) {
-      comment.replies = getAllResults(`${url}/${comment.id}/replies`, xToken);
+      comment.replies = getAllResults(`${url}/${comment.id}/replies`, {
+        xToken,
+      });
     }
     const resolvedReplies = await Promise.all(
       comments.map((comment) => comment.replies)
@@ -483,7 +467,7 @@ class ActivityAPI {
   static async convertActivityElementToObject(
     activityElement,
     currentTime,
-    userID
+    { userID } = {}
   ) {
     const activity = {};
     // activity.id; // no way for me to get this

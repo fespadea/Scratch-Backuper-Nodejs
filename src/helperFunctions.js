@@ -350,3 +350,26 @@ export function subtractTimeStringFromDate(timeString, oldDate) {
   newDate.setMinutes(newDate.getMinutes() - getNumberFromTimeString("minute"));
   return newDate;
 }
+
+export function extendArray(array, object) {
+  if (object) {
+    array.push(...object);
+  }
+}
+
+export function addCommentsToUsers(users, comments) {
+  if (comments) {
+    extendArray(
+      users,
+      comments.map((comment) => comment.author)
+    );
+    comments.forEach((comment) => {
+      if (comment.replies) {
+        extendArray(
+          users,
+          comment.replies.map((reply) => reply.author)
+        );
+      }
+    });
+  }
+}

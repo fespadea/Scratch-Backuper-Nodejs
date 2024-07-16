@@ -1,3 +1,4 @@
+import { addCommentsToUsers, extendArray } from "./helperFunctions.js";
 import { ProjectAPI, StudioAPI, UserAPI } from "./ScratchAPI.js";
 
 /**
@@ -19,8 +20,8 @@ export class ScratchObject {
   _gathered;
   _level;
 
-  addData(data) {
-    if (data && data.code !== "NotFound") {
+  addData(data = {}) {
+    if (data.code !== "NotFound") {
       for (const [key, value] of Object.entries(data)) {
         if (value !== undefined) {
           if (key === "_level") {
@@ -36,7 +37,7 @@ export class ScratchObject {
     }
   }
 
-  updateAuthorization(xToken, sessionID) {
+  updateAuthorization({ xToken, sessionID }) {
     let authorizationUpdated = false;
     if (xToken && xToken !== this._xToken) {
       this._xToken = xToken;
@@ -53,7 +54,7 @@ export class ScratchObject {
     return authorizationUpdated;
   }
 
-  constructor(baseData, level) {
+  constructor({ baseData = {}, level } = {}) {
     this._level = level;
     this._collected = false;
     this._gathered = false;
@@ -72,21 +73,8 @@ export class ScratchObject {
     throw new Error("_childCollectData() not implemented");
   }
 
-  async collectData(checkCollected = true) {
+  async collectData({ checkCollected = true } = {}) {
     if (checkCollected && this._collected) return false;
-
-    // for (const func of Object.getOwnPropertyNames(
-    //   Object.getPrototypeOf(this)
-    // )) {
-    //   if (func.search(/^add/) >= 0) {
-    //     try {
-    //       console.log(`await this.${func}()`);
-    //       await eval(`this.${func}()`);
-    //     } catch (e) {
-    //       if (!(e instanceof AuthorizationError)) throw e;
-    //     }
-    //   }
-    // }
 
     await this._childCollectData();
 
@@ -117,7 +105,7 @@ export class ScratchObject {
     throw new Error("gatherStudios not implemented");
   }
 
-  gatherObjects(checkGathered = true) {
+  gatherObjects({ checkGathered = true } = {}) {
     if (
       ((this._level && this._level <= 0) || checkGathered) &&
       this.hasGathered()
@@ -136,29 +124,6 @@ export class ScratchObject {
     if (checkGathered) this.setGathered(true);
 
     return { gatheredUsers, gatheredProjects, gatheredStudios };
-  }
-
-  _extendArray(array, object) {
-    if (object) {
-      array.push(...object);
-    }
-  }
-
-  _addCommentsToUsers(users, comments) {
-    if (comments) {
-      this._extendArray(
-        users,
-        comments.map((comment) => comment.author)
-      );
-      comments.forEach((comment) => {
-        if (comment.replies) {
-          this._extendArray(
-            users,
-            comment.replies.map((reply) => reply.author)
-          );
-        }
-      });
-    }
   }
 
   toJSON() {
@@ -189,8 +154,8 @@ export class ScratchUser extends ScratchObject {
    * @param {string} sessionID
    * @param {string} xToken
    */
-  constructor(username, baseData = {}, sessionID, xToken) {
-    super(baseData);
+  constructor({ username, level, baseData = {}, sessionID, xToken }) {
+    super({ baseData, level });
     if (username) this.username = username;
     this._sessionID = sessionID;
     this._xToken = xToken;
@@ -236,7 +201,7 @@ export class ScratchUser extends ScratchObject {
 
     const unsharedProjects = await UserAPI.getUnsharedProjects(
       this._sessionID,
-      this._xToken
+      { xToken: this._xToken }
     );
     this.addData({ unsharedProjects });
   }
@@ -249,10 +214,9 @@ export class ScratchUser extends ScratchObject {
       // );
     }
 
-    const trashedProjects = await UserAPI.getTrashedProjects(
-      this._sessionID,
-      this._xToken
-    );
+    const trashedProjects = await UserAPI.getTrashedProjects(this._sessionID, {
+      xToken: this._xToken,
+    });
     this.addData({ trashedProjects });
   }
 
@@ -267,7 +231,9 @@ export class ScratchUser extends ScratchObject {
   }
 
   async addActivity() {
-    const activity = await UserAPI.getActivity(this.username, this.id);
+    const activity = await UserAPI.getActivity(this.username, {
+      userID: this.id,
+    });
     this.addData({ activity });
   }
 
@@ -289,10 +255,10 @@ export class ScratchUser extends ScratchObject {
 
   gatherUsers() {
     const users = [];
-    this._extendArray(users, this.followers);
-    this._extendArray(users, this.following);
-    this._addCommentsToUsers(users, this.comments);
-    this._extendArray(
+    extendArray(users, this.followers);
+    extendArray(users, this.following);
+    addCommentsToUsers(users, this.comments);
+    extendArray(
       users,
       this.activity
         .filter((act) => "user_username" in act)
@@ -305,11 +271,11 @@ export class ScratchUser extends ScratchObject {
 
   gatherProjects() {
     const projects = [];
-    this._extendArray(projects, this.sharedProjects);
-    this._extendArray(projects, this.unsharedProjects);
-    this._extendArray(projects, this.trashedProjects);
-    this._extendArray(projects, this.favorites);
-    this._extendArray(
+    extendArray(projects, this.sharedProjects);
+    extendArray(projects, this.unsharedProjects);
+    extendArray(projects, this.trashedProjects);
+    extendArray(projects, this.favorites);
+    extendArray(
       projects,
       this.activity
         .filter((act) => "project_id" in act)
@@ -317,7 +283,7 @@ export class ScratchUser extends ScratchObject {
           return { id: act.project_id, title: act.project_title };
         })
     );
-    this._extendArray(
+    extendArray(
       projects,
       this.activity
         .filter((act) => "project_remix_id" in act)
@@ -330,9 +296,9 @@ export class ScratchUser extends ScratchObject {
 
   gatherStudios() {
     const studios = [];
-    this._extendArray(studios, this.curatedStudios);
-    this._extendArray(studios, this.followedStudios);
-    this._extendArray(
+    extendArray(studios, this.curatedStudios);
+    extendArray(studios, this.followedStudios);
+    extendArray(
       studios,
       this.activity
         .filter((act) => "studio_id" in act)
@@ -359,8 +325,8 @@ export class ScratchProject extends ScratchObject {
    * @param {string} username
    * @param {string} xToken
    */
-  constructor(projectID, baseData, username, xToken) {
-    super(baseData);
+  constructor({ projectID, level, baseData = {}, username, xToken }) {
+    super({ baseData, level });
     if (projectID) this.id = projectID;
     if (username) {
       if (!this.author) this.author = {};
@@ -370,19 +336,23 @@ export class ScratchProject extends ScratchObject {
   }
 
   async addProjectInfo() {
-    const projectData = await ProjectAPI.getProjectInfo(this.id, this._xToken);
+    const projectData = await ProjectAPI.getProjectInfo(this.id, {
+      xToken: this._xToken,
+    });
     this.addData(projectData);
   }
 
   async addRemixes() {
-    const remixes = await ProjectAPI.getRemixes(this.id, this._xToken);
+    const remixes = await ProjectAPI.getRemixes(this.id, {
+      xToken: this._xToken,
+    });
     this.addData({ remixes });
   }
 
   async #handleUsernameRequiredCall(apiCall, dataName) {
     try {
       const username = this.author ? this.author.username : this.username;
-      const datas = await apiCall(this.id, username, this._xToken);
+      const datas = await apiCall(this.id, { username, xToken: this._xToken });
       this.addData({ [dataName]: datas });
     } catch (error) {
       if (error.name !== "ProjectUsernameError") {
@@ -408,7 +378,7 @@ export class ScratchProject extends ScratchObject {
       // },
     };
     // _xToken only used by ProjectAPI.getProjectFromScratch
-    const project = await apiCall(this.id, options, this._xToken);
+    const project = await apiCall(this.id, { options, xToken: this._xToken });
     if (project) {
       if (this.title) {
         project.title = this.title;
@@ -483,17 +453,17 @@ export class ScratchProject extends ScratchObject {
   gatherUsers() {
     const users = [];
     // needs username to know where to store
-    this._extendArray(users, [this.author]);
-    this._addCommentsToUsers(users, this.comments);
+    extendArray(users, [this.author]);
+    addCommentsToUsers(users, this.comments);
     return users;
   }
 
   gatherProjects() {
     const projects = [];
-    this._extendArray(projects, this.remixes);
+    extendArray(projects, this.remixes);
     if (this.remix) {
       // these don't have username or userid (plus they don't have the project title)
-      this._extendArray(projects, [this.remix.parent, this.remix.root]);
+      extendArray(projects, [this.remix.parent, this.remix.root]);
     }
     return projects;
   }
@@ -501,7 +471,7 @@ export class ScratchProject extends ScratchObject {
   gatherStudios() {
     const studios = [];
     // needs host username to know which folder to put in
-    this._extendArray(studios, this.studios);
+    extendArray(studios, this.studios);
     return studios;
   }
 }
@@ -518,8 +488,8 @@ export class ScratchStudio extends ScratchObject {
    * @param {string} studioID
    * @param {object} baseData
    */
-  constructor(studioID, baseData) {
-    super(baseData);
+  constructor({ studioID, level, baseData = {} }) {
+    super({ baseData, level });
     if (studioID) this.id = studioID;
   }
 
@@ -570,10 +540,10 @@ export class ScratchStudio extends ScratchObject {
     const hostUser = {};
     if (this.host) hostUser.id = this.host;
     if (this.username) hostUser.username = this.username;
-    if (Object.keys(hostUser).length > 0) this._extendArray([hostUser]);
-    this._extendArray(users, this.curators);
-    this._extendArray(users, this.managers);
-    this._extendArray(
+    if (Object.keys(hostUser).length > 0) extendArray([hostUser]);
+    extendArray(users, this.curators);
+    extendArray(users, this.managers);
+    extendArray(
       users,
       this.activity
         .filter((act) => "username" in act)
@@ -581,14 +551,14 @@ export class ScratchStudio extends ScratchObject {
           return { id: act.actor_id, username: act.username };
         })
     );
-    this._addCommentsToUsers(users, this.comments);
+    addCommentsToUsers(users, this.comments);
     return users;
   }
 
   gatherProjects() {
     const projects = [];
-    this._extendArray(projects, this.projects);
-    this._extendArray(
+    extendArray(projects, this.projects);
+    extendArray(
       projects,
       this.activity
         .filter((act) => "project_id" in act)
