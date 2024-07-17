@@ -5,8 +5,8 @@ const password = process.env.SCRATCH_PASSWORD;
 
 async function runArchive() {
   const scratchArchive = new ScratchArchive();
-  await scratchArchive.logIn({ username, password });
-  // scratchArchive.addUser({ username: "fespadea", level: 0 });
+  await scratchArchive.logIn(username, { password });
+  scratchArchive.addUser({ username: "fespadea", level: 0 });
   // scratchArchive.addProject({
   //   projectID: 10051760,
   //   username: "fespadea",
@@ -16,10 +16,10 @@ async function runArchive() {
   // scratchArchive.addUser({ username: "Paperboy200", level: 1 });
   // scratchArchive.addUser({ username: "100codelyoko", level: 1 });
   // await scratchArchive.loadArchive();
-  // await scratchArchive.completeDataSweeps({ storeAsYouGo: true });
+  await scratchArchive.completeDataSweeps({ storeAsYouGo: true });
   // await scratchArchive.storeArchive();
   // await scratchArchive.cleanUpArchive();
-  // console.log(scratchArchive);
+  console.log(scratchArchive);
 }
 
 runArchive();

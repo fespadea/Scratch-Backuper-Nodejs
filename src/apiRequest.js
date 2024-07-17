@@ -54,7 +54,13 @@ async function dumpAPIRequest(id, data) {
     _id: id,
     data: data,
   };
-  await cachedRequestsDB.insertAsync(doc);
+  await cachedRequestsDB.updateAsync(
+    {
+      _id: id,
+    },
+    doc,
+    { upsert: true }
+  );
   markedIDs.delete(id);
 }
 
@@ -165,6 +171,8 @@ export async function apiRequest(
         notDone = false;
       }
     } catch (error) {
+      console.log(url);
+      console.log(options);
       console.error(error);
       await sleep(10000);
     }

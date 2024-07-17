@@ -1,18 +1,22 @@
-import { addCommentsToUsers, extendArray } from "./helperFunctions.js";
+import {
+  dumpJSON,
+  dumpProject,
+  formatID,
+  getUserDataFromComments,
+  getValidFilename,
+  getValidFolderName,
+} from "./helperFunctions.js";
 import { ProjectAPI, StudioAPI, UserAPI } from "./ScratchAPI.js";
 
-/**
- * Error that gets thrown if a function that requires authorization is run
- * without a way to get said authorization
- */
-export class AuthorizationError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "AuthorizationError";
-  }
-}
+const PROJECTS_FOLDER = "projects/";
+const STUDIOS_FOLDER = "studios/";
 
-export class ScratchObject {
+const MISSING_USERNAME_INDICATOR = "-Unable to Acquire Username-";
+const MISSING_PROJECT_TILE_INDICATOR = "-Unable to Acquire Project Title-";
+const MISSING_STUDIO_TITLE_INDICATOR = "-Unable to Acquire Studio Title-";
+const UNKNOWN_USER_INDICATOR = "-Unable to Identify User-";
+
+class ScratchObject {
   _xToken;
   _sessionID;
 
@@ -25,9 +29,7 @@ export class ScratchObject {
       for (const [key, value] of Object.entries(data)) {
         if (value !== undefined) {
           if (key === "_level") {
-            if (this._level === undefined || this._level < value) {
-              this._level = value;
-            }
+            this.setLevelIfHigher(value);
           } else {
             this[key] = value;
           }
@@ -35,6 +37,32 @@ export class ScratchObject {
       }
       // Object.assign(this, data);
     }
+  }
+
+  getUsername() {
+    throw new Error("getUsername not implemented");
+  }
+
+  setUsername(username) {
+    throw new Error("setUsername not implemented");
+  }
+
+  // gets overwritten by ScratchUser to return getUsername
+  getTitle() {
+    return this.title;
+  }
+
+  // gets overwritten by ScratchUser to call setUsername
+  setTitle(title) {
+    if (!this.title && title) this.title = title;
+  }
+
+  getUserID() {
+    throw new Error("getUserID not implemented");
+  }
+
+  getID() {
+    return this.id;
   }
 
   updateAuthorization({ xToken, sessionID }) {
@@ -62,25 +90,39 @@ export class ScratchObject {
   }
 
   setLevel(level) {
-    this._level = level;
+    this._level = isNaN(level) ? level : max(level, 0);
+  }
+
+  setLevelIfHigher(level) {
+    if (this.getLevel() === undefined || level > this.getLevel()) {
+      this.setLevel(level);
+    }
   }
 
   getLevel() {
     return this._level;
   }
 
-  async _childCollectData() {
+  async childCollectData() {
     throw new Error("_childCollectData() not implemented");
   }
 
-  async collectData({ checkCollected = true } = {}) {
-    if (checkCollected && this._collected) return false;
+  hasCollected() {
+    return this._collected;
+  }
 
-    await this._childCollectData();
+  setCollected(collected) {
+    this._collected = collected;
+  }
+
+  async collectData({ checkCollected = true } = {}) {
+    if (checkCollected && this.hasCollected()) return false;
+
+    await this.childCollectData();
 
     if (checkCollected) {
-      this._collected = true;
-      this._gathered = false;
+      this.setCollected(true);
+      this.setGathered(false);
     }
     return true;
   }
@@ -93,37 +135,49 @@ export class ScratchObject {
     this._gathered = gathered;
   }
 
-  gatherUsers() {
-    throw new Error("gatherUsers not implemented");
+  #createGatheredScratchObjects(arraysOfDatas, scratchClass) {
+    level = this.getLevel();
+    return arraysOfDatas
+      .flat(1)
+      .filter((baseData) => baseData !== undefined)
+      .map(
+        (baseData) =>
+          new scratchClass({
+            baseData,
+            level: isNaN(level) ? undefined : level - 1,
+          })
+      );
   }
 
-  gatherProjects() {
-    throw new Error("gatherProjects not implemented");
+  gatherUsers(arraysOfUsers) {
+    return this.#createGatheredScratchObjects(arraysOfUsers, ScratchUser);
   }
 
-  gatherStudios() {
-    throw new Error("gatherStudios not implemented");
+  gatherProjects(arraysOfProjects) {
+    return this.#createGatheredScratchObjects(arraysOfProjects, ScratchProject);
+  }
+
+  gatherStudios(arraysOfStudios) {
+    return this.#createGatheredScratchObjects(arraysOfStudios, ScratchStudio);
+  }
+
+  shouldGather({ checkGathered = true } = {}) {
+    const level = this.getLevel();
+    return level && (!checkGathered || !this.hasGathered());
   }
 
   gatherObjects({ checkGathered = true } = {}) {
-    if (
-      ((this._level && this._level <= 0) || checkGathered) &&
-      this.hasGathered()
-    ) {
+    if (!this.shouldGather(checkGathered)) {
       return { gatheredUsers: [], gatheredProjects: [], gatheredStudios: [] };
     }
 
-    const applyLevel = (data) => {
-      return { ...data, _level: this._level - 1 };
-    };
-
-    const gatheredUsers = this.gatherUsers().map(applyLevel);
-    const gatheredProjects = this.gatherProjects().map(applyLevel);
-    const gatheredStudios = this.gatherStudios().map(applyLevel);
+    const gatheredUsers = this.gatherUsers();
+    const gatheredProjects = this.gatherProjects();
+    const gatheredStudios = this.gatherStudios();
 
     if (checkGathered) this.setGathered(true);
 
-    return { gatheredUsers, gatheredProjects, gatheredStudios };
+    return [...gatheredUsers, ...gatheredProjects, ...gatheredStudios];
   }
 
   toJSON() {
@@ -134,6 +188,63 @@ export class ScratchObject {
       }
     }
     return data;
+  }
+
+  isSameScratchObject(scratchObject) {
+    return (
+      scratchObject.getID() === this.getID() &&
+      this.getID() !== undefined &&
+      scratchObject.constructor === this.constructor
+    );
+  }
+
+  getMissingIndicator() {
+    throw new Error("getMissingIndicator not implemented");
+  }
+
+  // overwritten by ScratchProject and ScratchStudio
+  getSubFolder() {
+    return "";
+  }
+
+  getFolderName() {
+    let title = this.getTitle();
+    if (!title) title = this.getMissingIndicator();
+    title += formatID(this.getID());
+    return getValidFolderName(title);
+  }
+
+  getFileName() {
+    let title = this.getTitle();
+    if (!title) title = this.getMissingIndicator() + formatID(this.getID());
+    return getValidFilename(title);
+  }
+
+  getUserPath() {
+    let username = this.getUsername();
+    if (!username) {
+      const userID = this.getUserID();
+      username = userID
+        ? MISSING_USERNAME_INDICATOR + formatID(userID)
+        : UNKNOWN_USER_INDICATOR;
+    }
+    return getValidFolderName(username) + "/";
+  }
+
+  // gets overwritten by ScratchUser to return getUserPath()
+  getParentPath() {
+    return (
+      this.getUserPath() + this.getSubFolder() + this.getFolderName() + "/"
+    );
+  }
+
+  getPath(archivePath) {
+    return archivePath + this.getParentPath() + this.getFileName();
+  }
+
+  // gets overwritten by ScratchProject to also store projects
+  async store(archivePath) {
+    return dumpJSON(this, `${this.getPath(archivePath)}.json`);
   }
 }
 
@@ -159,6 +270,47 @@ export class ScratchUser extends ScratchObject {
     if (username) this.username = username;
     this._sessionID = sessionID;
     this._xToken = xToken;
+  }
+
+  getTitle() {
+    return this.username;
+  }
+
+  setTitle(title) {
+    if (title && !this.username) this.username = title;
+  }
+
+  getUsername() {
+    return this.getTitle();
+  }
+
+  setUsername(username) {
+    this.setTitle(username);
+  }
+
+  getUserID() {
+    return this.getID();
+  }
+
+  static getMissingIndicator() {
+    return MISSING_USERNAME_INDICATOR;
+  }
+
+  getMissingIndicator() {
+    return ScratchUser.getMissingIndicator();
+  }
+
+  getParentPath() {
+    return this.getUserPath();
+  }
+
+  async store(archivePath) {
+    const projectPath = archivePath + this.getParentPath();
+    return Promise.all([
+      super.store(archivePath),
+      dumpProject(this._project, projectPath),
+      dumpProject(this._waybackProject, projectPath),
+    ]);
   }
 
   async addUserInfo() {
@@ -194,9 +346,6 @@ export class ScratchUser extends ScratchObject {
   async addUnsharedProjects() {
     if (this._sessionID === undefined) {
       return;
-      // throw new AuthorizationError(
-      //   "ScratchUser.addUnsharedProjects requires that sessionID or password be provided to this object."
-      // );
     }
 
     const unsharedProjects = await UserAPI.getUnsharedProjects(
@@ -209,9 +358,6 @@ export class ScratchUser extends ScratchObject {
   async addTrashedProjects() {
     if (this._sessionID === undefined) {
       return;
-      // throw new AuthorizationError(
-      //   "ScratchUser.addTrashedProjects requires that sessionID or password be provided to this object."
-      // );
     }
 
     const trashedProjects = await UserAPI.getTrashedProjects(this._sessionID, {
@@ -237,7 +383,7 @@ export class ScratchUser extends ScratchObject {
     this.addData({ activity });
   }
 
-  async _childCollectData() {
+  async childCollectData() {
     await Promise.all([
       this.addUserInfo(),
       this.addFavorites(),
@@ -254,59 +400,57 @@ export class ScratchUser extends ScratchObject {
   }
 
   gatherUsers() {
-    const users = [];
-    extendArray(users, this.followers);
-    extendArray(users, this.following);
-    addCommentsToUsers(users, this.comments);
-    extendArray(
-      users,
+    return super.gatherUsers([
+      this.followers,
+      this.following,
+      getUserDataFromComments(this.comments),
       this.activity
         .filter((act) => "user_username" in act)
         .map((act) => {
           return { id: act.user_id, title: act.user_username };
-        })
-    );
-    return users;
+        }),
+    ]);
   }
 
   gatherProjects() {
-    const projects = [];
-    extendArray(projects, this.sharedProjects);
-    extendArray(projects, this.unsharedProjects);
-    extendArray(projects, this.trashedProjects);
-    extendArray(projects, this.favorites);
-    extendArray(
-      projects,
+    return super.gatherProjects([
+      this.sharedProjects,
+      this.unsharedProjects,
+      this.trashedProjects,
+      this.favorites,
       this.activity
         .filter((act) => "project_id" in act)
         .map((act) => {
           return { id: act.project_id, title: act.project_title };
-        })
-    );
-    extendArray(
-      projects,
+        }),
       this.activity
         .filter((act) => "project_remix_id" in act)
         .map((act) => {
           return { id: act.project_remix_id, title: act.project_remix_title };
-        })
-    );
-    return projects;
+        }),
+    ]);
   }
 
   gatherStudios() {
-    const studios = [];
-    extendArray(studios, this.curatedStudios);
-    extendArray(studios, this.followedStudios);
-    extendArray(
-      studios,
+    return super.gatherStudios([
+      this.curatedStudios,
+      this.followedStudios,
       this.activity
         .filter((act) => "studio_id" in act)
         .map((act) => {
           return { id: act.studio_id, title: act.studio_title };
-        })
-    );
-    return studios;
+        }),
+    ]);
+  }
+
+  isSameScratchObject(scratchObject) {
+    if (this.getUsername() === undefined)
+      return super.isSameScratchObject(scratchObject);
+    else
+      return (
+        scratchObject.getUsername() === this.getUsername() &&
+        scratchObject.constructor !== this.constructor
+      );
   }
 }
 
@@ -333,6 +477,42 @@ export class ScratchProject extends ScratchObject {
       this.author.username = username;
     }
     this._xToken = xToken;
+  }
+
+  getUsername() {
+    return this.username
+      ? this.username
+      : this.author
+      ? this.author.username
+      : undefined;
+  }
+
+  setUsername(username) {
+    if (username) {
+      if (this.author) {
+        if (!this.author.username) this.author.username = username;
+      } else if (!this.username) this.username = username;
+    }
+  }
+
+  getUserID() {
+    return this.creator_id
+      ? this.creator_id
+      : this.author
+      ? this.author.id
+      : undefined;
+  }
+
+  static getMissingIndicator() {
+    return MISSING_PROJECT_TILE_INDICATOR;
+  }
+
+  getMissingIndicator() {
+    return ScratchProject.getMissingIndicator();
+  }
+
+  getSubFolder() {
+    return PROJECTS_FOLDER;
   }
 
   async addProjectInfo() {
@@ -429,7 +609,7 @@ export class ScratchProject extends ScratchObject {
     }
   }
 
-  async _childCollectData() {
+  async childCollectData() {
     // call these now because they don't require the project author's username,
     // but don't await them till after the projectInfo call when we can call the
     // rest of the data functions
@@ -451,28 +631,21 @@ export class ScratchProject extends ScratchObject {
   }
 
   gatherUsers() {
-    const users = [];
-    // needs username to know where to store
-    extendArray(users, [this.author]);
-    addCommentsToUsers(users, this.comments);
-    return users;
+    return super.gatherUsers([
+      this.author,
+      getUserDataFromComments(this.comments),
+    ]);
   }
 
   gatherProjects() {
-    const projects = [];
-    extendArray(projects, this.remixes);
-    if (this.remix) {
-      // these don't have username or userid (plus they don't have the project title)
-      extendArray(projects, [this.remix.parent, this.remix.root]);
-    }
-    return projects;
+    return super.gatherProjects([
+      this.remixes,
+      this.remix ? [{ id: this.remix.parent }, { id: this.remix.root }] : [],
+    ]);
   }
 
   gatherStudios() {
-    const studios = [];
-    // needs host username to know which folder to put in
-    extendArray(studios, this.studios);
-    return studios;
+    return super.gatherStudios([this.studios]);
   }
 }
 
@@ -491,6 +664,44 @@ export class ScratchStudio extends ScratchObject {
   constructor({ studioID, level, baseData = {} }) {
     super({ baseData, level });
     if (studioID) this.id = studioID;
+  }
+
+  getUsername() {
+    return this.host_username
+      ? this.host_username
+      : this.managers && this.managers.length > 0
+      ? this.managers[0].username
+      : undefined;
+  }
+
+  setUsername(username) {
+    if (username) {
+      if (this.managers && this.managers.length > 0) {
+        if (!this.managers[0].username) this.managers[0].username = username;
+      } else if (!this.host_username) {
+        this.host_username = username;
+      }
+    }
+  }
+
+  getUserID() {
+    return this.host
+      ? this.host
+      : this.managers && this.managers.length > 0
+      ? this.managers[0].id
+      : undefined;
+  }
+
+  static getMissingIndicator() {
+    return MISSING_STUDIO_TITLE_INDICATOR;
+  }
+
+  getMissingIndicator() {
+    return ScratchStudio.getMissingIndicator();
+  }
+
+  getSubFolder() {
+    return STUDIOS_FOLDER;
   }
 
   async addStudioInfo() {
@@ -523,7 +734,7 @@ export class ScratchStudio extends ScratchObject {
     this.addData({ projects });
   }
 
-  async _childCollectData() {
+  async childCollectData() {
     await Promise.all([
       this.addStudioInfo(),
       this.addActivity(),
@@ -535,42 +746,30 @@ export class ScratchStudio extends ScratchObject {
   }
 
   gatherUsers() {
-    const users = [];
-    // needs username to know where to store
-    const hostUser = {};
-    if (this.host) hostUser.id = this.host;
-    if (this.username) hostUser.username = this.username;
-    if (Object.keys(hostUser).length > 0) extendArray([hostUser]);
-    extendArray(users, this.curators);
-    extendArray(users, this.managers);
-    extendArray(
-      users,
+    return super.gatherUsers([
+      { id: this.host },
+      this.curators,
+      this.managers,
       this.activity
         .filter((act) => "username" in act)
         .map((act) => {
           return { id: act.actor_id, username: act.username };
-        })
-    );
-    addCommentsToUsers(users, this.comments);
-    return users;
+        }),
+    ]);
   }
 
   gatherProjects() {
-    const projects = [];
-    extendArray(projects, this.projects);
-    extendArray(
-      projects,
+    return super.gatherProjects([
+      this.projects,
       this.activity
         .filter((act) => "project_id" in act)
         .map((act) => {
           return { id: act.project_id, title: act.project_title };
-        })
-    );
-    return projects;
+        }),
+    ]);
   }
 
   gatherStudios() {
-    const studios = [];
-    return studios;
+    return super.gatherStudios([]);
   }
 }

@@ -142,7 +142,6 @@ export class UserAPI {
     }
     for (let i = 0; i < unsharedProjects.length; i++) {
       const projectID = unsharedProjects[i].pk;
-      console.log(xToken);
       unsharedProjects[i] = await ProjectAPI.getProjectInfo(projectID, {
         xToken,
       });
@@ -238,7 +237,7 @@ export class UserAPI {
             "X-Requested-With": "XMLHttpRequest",
           },
         },
-        fetchOptions: "text",
+        returnFunc: "text",
         returnHeaders: true,
       }
     );
@@ -480,7 +479,7 @@ class ActivityAPI {
     const actorElement = activityElement.querySelector(".actor");
     activity.actor_username = actorElement.textContent;
     if (!userID) {
-      const userData = await getUserInfo(activity.actor_username);
+      const userData = await UserAPI.getUserInfo(activity.actor_username);
       if (userData) {
         userID = userData.id;
       }

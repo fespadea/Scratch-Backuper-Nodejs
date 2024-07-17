@@ -47,15 +47,11 @@ const PROJECT_TYPE_REGEX = "\\.(sb[23]?)$";
  * @returns string
  */
 export function getValidFilename(fileName, useHomoglyphs = true) {
-  if (fileName === "Homosexuality is NOT wrong! | GIO3 {undefined}")
-    console.log(fileName);
   let safeFileName = fileName;
   Object.entries(FORBIDDEN_CHARACTERS).forEach(([key, value]) => {
     safeFileName = safeFileName.replace(key, useHomoglyphs ? value : "");
   });
   safeFileName.replace(ASCII_CONTROL_CHARACTERS, "");
-  if (fileName === "Homosexuality is NOT wrong! | GIO3 {undefined}")
-    console.log(safeFileName);
   return safeFileName;
 }
 
@@ -97,14 +93,9 @@ export async function dumpProject(project, projectPath) {
       (project.date ? ` ${project.date.toISOString()}` : "") +
         `.${project.type}`
     );
-    await fs.writeFile(
-      projectPath,
-      Buffer.from(project.arrayBuffer),
-      { flag: "w" },
-      (err) => {
-        if (err) console.log(err);
-      }
-    );
+    await fs.writeFile(projectPath, Buffer.from(project.arrayBuffer), {
+      flag: "w",
+    });
   }
 }
 
@@ -278,13 +269,10 @@ export class SimpleRateLimiter {
 
   async removeTokens(tokens, hostname) {
     const timeLeft = this.lastTime[hostname] + this.interval - Date.now();
-    // console.log(`timeLeft: ${timeLeft}`);
     if (timeLeft <= 0) {
       this.tokensLeft[hostname] = this.tokensPerInterval;
       this.lastTime[hostname] = Date.now();
-      //   console.log(`timeLeft <= 0: ${timeLeft <= 0}`);
     }
-    // console.log(`tokens <= this.tokensLeft: ${tokens <= this.tokensLeft}`);
     if (tokens <= this.tokensLeft[hostname]) {
       this.tokensLeft[hostname] -= tokens;
     } else {
@@ -293,7 +281,6 @@ export class SimpleRateLimiter {
       await sleep(timeLeft);
       this.removeTokens(tokensToPass);
     }
-    // console.log(`this.tokensLeft: ${this.tokensLeft}`);
   }
 }
 
@@ -351,25 +338,35 @@ export function subtractTimeStringFromDate(timeString, oldDate) {
   return newDate;
 }
 
-export function extendArray(array, object) {
-  if (object) {
-    array.push(...object);
+export function getUserDataFromComments(comments) {
+  if (comments) {
+    const userDatas = comments.map((comment) => comment.author);
+    comments.forEach((comment) => {
+      if (comment.replies) {
+        userDatas.push(...comment.replies.map((reply) => reply.author));
+      }
+    });
+    return userDatas;
+  } else {
+    return [];
   }
 }
 
-export function addCommentsToUsers(users, comments) {
-  if (comments) {
-    extendArray(
-      users,
-      comments.map((comment) => comment.author)
-    );
-    comments.forEach((comment) => {
-      if (comment.replies) {
-        extendArray(
-          users,
-          comment.replies.map((reply) => reply.author)
-        );
-      }
-    });
-  }
+export async function parseFileName(file) {
+  const userIDMatch = file.match(
+    /(.*\/)(([^/]*)( \{(\d+)\})?)?(\/|\.json|\.sb[23]?)$/
+  );
+  return {
+    parentPath: userIDMatch[1],
+    fileName: userIDMatch[2],
+    name: userIDMatch[3],
+    idAddition: userIDMatch[4],
+    id: userIDMatch[5],
+    type: userIDMatch[6],
+  };
+}
+
+export function formatID(id) {
+  if (id) return ` {${id}}`;
+  else return "";
 }

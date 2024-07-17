@@ -5,34 +5,19 @@ import {
 } from "./ScratchClasses.js";
 import { getSessionIDAndXToken, getXToken } from "./ScratchAPI.js";
 import {
-  dumpJSON,
-  dumpProject,
-  getValidFilename,
-  getValidFolderName,
   getFolders,
   loadJSONs,
   loadProjects,
   moveFile,
   getItemsInFolder,
+  parseFileName,
 } from "./helperFunctions.js";
 
 const DEFAULT_ARCHIVE_PATH = "./ScratchArchive/";
-const PROJECTS_FOLDER = "/projects/";
-const STUDIOS_FOLDER = "/studios/";
-
-const MISSING_USERNAME_INDICATOR = "-Unable to Acquire Username-";
-const MISSING_PROJECT_TILE_INDICATOR = "-Unable to Acquire Project Title-";
-const MISSING_STUDIO_TITLE_INDICATOR = "-Unable to Acquire Studio Title-";
-const UNKNOWN_USER_INDICATOR = "-Unable to Identify User-";
 
 export class ScratchArchive {
   #authorizations;
 
-  /**
-   * Set up the arrays for the Scratch users, projects, and studios included in
-   * this archive
-   * Also, set up the array for any authorizations provided.
-   */
   constructor({ archivePath = DEFAULT_ARCHIVE_PATH } = {}) {
     this.users = [];
     this.projects = [];
@@ -50,13 +35,6 @@ export class ScratchArchive {
     this.archivePath = newArchivePath;
   }
 
-  /**
-   *
-   * @param {string} username
-   * @param {string} [password=]
-   * @param {string} [xToken=]
-   * @param {string} [sessionID=]
-   */
   async logIn(username, { password, xToken, sessionID }) {
     const authData = { xToken, sessionID };
     if (password && !sessionID) {
@@ -67,6 +45,22 @@ export class ScratchArchive {
       authData.xToken = await getXToken(sessionID);
     }
     this.#authorizations[username] = authData;
+    if (authData.sessionID || authData.xToken) {
+      this.users.forEach((user) => {
+        if (user.getUsername() === username)
+          user.updateAuthorization({
+            xToken: authData.xToken,
+            sessionID: authData.sessionID,
+          });
+      });
+      if (authData.xToken) {
+        this.projects.forEach((project) => {
+          if (project.getUsername() === username) {
+            project.updateAuthorization({ xToken: authData.xToken });
+          }
+        });
+      }
+    }
   }
 
   getAuthorization(username) {
@@ -75,66 +69,66 @@ export class ScratchArchive {
       : {};
   }
 
-  addUser({ username, baseData = {}, level }) {
-    if (username === undefined) username = baseData["username"];
-    const userIndex = this.users.findIndex(
-      (user) => user.username === username
-    );
-    if (level !== undefined) baseData["_level"] = level;
-    if (userIndex >= 0) {
-      this.users[userIndex].addData(baseData);
-      return this.users[userIndex];
+  addScratchObject(newScratchObject, { scratchObjectArray } = {}) {
+    if (!scratchObjectArray) {
+      if (newScratchObject instanceof ScratchUser)
+        scratchObjectArray = this.users;
+      else if (newScratchObject instanceof ScratchProject)
+        scratchObjectArray = this.projects;
+      else if (newScratchObject instanceof ScratchStudio)
+        scratchObjectArray = this.studios;
+      else return null;
     }
-    const authData = this.getAuthorization(username);
-    const user = new ScratchUser({
-      username,
-      baseData,
-      sessionID: authData.sessionID,
+
+    const objectIndex = scratchObjectArray.findIndex((scratchObject) =>
+      newScratchObject.isSameScratchObject(scratchObject)
+    );
+    if (objectIndex >= 0) {
+      scratchObjectArray[objectIndex].addData(newScratchObject);
+      return scratchObjectArray[objectIndex];
+    }
+    const authData = this.getAuthorization(newScratchObject.getUsername());
+    newScratchObject.updateAuthorization({
       xToken: authData.xToken,
+      sessionID: authData.sessionID,
     });
-    this.users.push(user);
+    scratchObjectArray.push(newScratchObject);
     this.foundIDToNameConversions = false;
-    return user;
+    return newScratchObject;
+  }
+
+  addUser({ username, baseData = {}, level }) {
+    return this.addScratchObject(
+      new ScratchUser({
+        username,
+        baseData,
+        level,
+      }),
+      { scratchObjectArray: this.users }
+    );
   }
 
   addProject({ projectID, baseData = {}, username, level }) {
-    if (projectID === undefined) projectID = baseData["id"];
-    if (!username)
-      username = baseData.author ? baseData.author.username : baseData.username;
-    const projectIndex = this.projects.findIndex(
-      (project) => project.projectID === projectID
+    return this.addScratchObject(
+      new ScratchProject({
+        projectID,
+        baseData,
+        username,
+        level,
+      }),
+      { scratchObjectArray: this.projects }
     );
-    if (level !== undefined) baseData["_level"] = level;
-    if (projectIndex >= 0) {
-      this.projects[projectIndex].addData(baseData);
-      return this.projects[projectIndex];
-    }
-    const authData = this.getAuthorization(username);
-    const project = new ScratchProject({
-      projectID,
-      baseData,
-      username,
-      xToken: authData.xToken,
-    });
-    this.projects.push(project);
-    this.foundIDToNameConversions = false;
-    return project;
   }
 
   addStudio({ studioID, baseData = {}, level }) {
-    if (studioID === undefined) studioID = baseData["id"];
-    const studioIndex = this.studios.findIndex(
-      (studio) => studio.studioID === studioID
+    return this.addScratchObject(
+      new ScratchStudio({
+        studioID,
+        baseData,
+        level,
+      }),
+      { scratchObjectArray: this.studios }
     );
-    if (level !== undefined) baseData["_level"] = level;
-    if (studioIndex >= 0) {
-      this.studios[studioIndex].addData(baseData);
-      return this.studios[studioIndex];
-    }
-    const studio = new ScratchStudio({ studioID, baseData });
-    this.studios.push(studio);
-    this.foundIDToNameConversions = false;
-    return studio;
   }
 
   async collectData({ storeAsYouGo = false } = {}) {
@@ -145,34 +139,25 @@ export class ScratchArchive {
         .map(async (scratchObject) => {
           const didCollectData = await scratchObject.collectData();
           if (didCollectData && storeAsYouGo)
-            this.storePromises.push(
-              this.storeScratchObject(scratchObject, this.archivePath)
-            );
+            this.storePromises.push(scratchObject.store(this.archivePath));
         })
     );
     this.foundIDToNameConversions = false;
   }
 
-  gatherFromScratchObject(scratchObject) {
-    const gatheredObjects = scratchObject.gatherObjects();
-    gatheredObjects.gatheredUsers.forEach(
-      (user) => this.addUser({ baseData: user }),
-      this
-    );
-    gatheredObjects.gatheredProjects.forEach(
-      (baseData) => this.addProject({ baseData }),
-      this
-    );
-    gatheredObjects.gatheredStudios.forEach(
-      (baseData) => this.addStudio({ baseData }),
-      this
-    );
-  }
-
   gatherScratchObjects() {
-    this.users.forEach(this.gatherFromScratchObject, this);
-    this.projects.forEach(this.gatherFromScratchObject, this);
-    this.studios.forEach(this.gatherFromScratchObject, this);
+    [...this.users, ...this.projects, ...this.studios].forEach(
+      (scratchObject) => {
+        scratchObject
+          .gatherObjects()
+          .forEach(
+            (gatheredObject) =>
+              this.addScratchObject({ baseData: gatheredObject }),
+            this
+          );
+      },
+      this
+    );
   }
 
   async completeDataSweeps({ storeAsYouGo = false, numSweeps = -1 } = {}) {
@@ -193,154 +178,6 @@ export class ScratchArchive {
     await collectDataPromise;
     if (storeAsYouGo) {
       await Promise.all(this.storePromises);
-    }
-  }
-
-  getUsernameFromID(userID) {
-    if (userID in this.userIDToNames) {
-      return this.userIDToNames[userID];
-    } else {
-      return MISSING_USERNAME_INDICATOR;
-    }
-  }
-
-  getProjectTitleFromID(projectID) {
-    if (projectID in this.projectIDToTitles) {
-      return this.projectIDToTitles[projectID];
-    } else {
-      return MISSING_PROJECT_TILE_INDICATOR;
-    }
-  }
-
-  getStudioTitleFromID(studioID) {
-    if (studioID in this.studioIDToTitles) {
-      return this.studioIDToTitles[studioID];
-    } else {
-      return MISSING_STUDIO_TITLE_INDICATOR;
-    }
-  }
-
-  static getIDAddition(scratchObject) {
-    if (scratchObject.id) return ` {${scratchObject.id}}`;
-    else return "";
-  }
-
-  getUserFileName(user, { includeIDAddition = false } = {}) {
-    let username = user.username
-      ? user.username
-      : this.getUsernameFromID(user.id);
-    if (includeIDAddition || username === MISSING_USERNAME_INDICATOR)
-      username += ScratchArchive.getIDAddition(user);
-    return getValidFilename(username);
-  }
-
-  getUserParentPath(user) {
-    return (
-      this.archivePath +
-      getValidFolderName(
-        `${this.getUserFileName(user, { includeIDAddition: true })}`
-      ) +
-      "/"
-    );
-  }
-
-  getUserPath(user) {
-    return this.getUserParentPath(user) + this.getUserFileName(user);
-  }
-
-  async storeUser(user) {
-    await dumpJSON(user, `${this.getUserPath(user)}.json`);
-  }
-
-  getProjectFileName(project, { includeIDAddition = false } = {}) {
-    let projectTitle = project.title
-      ? project.title
-      : this.getProjectTitleFromID(project.id);
-    if (includeIDAddition || projectTitle === MISSING_PROJECT_TILE_INDICATOR)
-      projectTitle += ScratchArchive.getIDAddition(project);
-    return getValidFilename(projectTitle);
-  }
-
-  getProjectParentPath(project) {
-    const userParentPath = this.getUserParentPath(
-      project.username
-        ? { username: project.username, id: project.creator_id }
-        : project.author
-        ? project.author.username
-          ? project.author
-          : {
-              username: this.getUsernameFromID(project.author.id),
-              id: project.author.id,
-            }
-        : { username: UNKNOWN_USER_INDICATOR }
-    );
-    return (
-      userParentPath +
-      PROJECTS_FOLDER +
-      getValidFolderName(
-        `${this.getProjectFileName(project, { includeIDAddition: true })}`
-      ) +
-      "/"
-    );
-  }
-
-  getProjectPath(project) {
-    return (
-      this.getProjectParentPath(project) + this.getProjectFileName(project)
-    );
-  }
-
-  async storeProject(project) {
-    const projectPath = this.getProjectPath(project);
-    await Promise.all([
-      dumpJSON(project, `${projectPath}.json`),
-      dumpProject(project._project, projectPath),
-      dumpProject(project._waybackProject, projectPath),
-    ]);
-  }
-
-  getStudioFileName(studio, { includeIDAddition = false } = {}) {
-    let studioTitle = studio.title
-      ? studio.title
-      : this.getStudioTitleFromID(studio.id);
-    if (includeIDAddition || studioTitle === MISSING_STUDIO_TITLE_INDICATOR)
-      studioTitle += ScratchArchive.getIDAddition(studio);
-    return getValidFilename(studioTitle);
-  }
-
-  getStudioParentPath(studio) {
-    const userParentPath = this.getUserParentPath(
-      studio.managers && studio.managers.length > 0
-        ? studio.managers[0]
-        : studio.host
-        ? { username: this.getUsernameFromID(studio.host), id: studio.host }
-        : { username: UNKNOWN_USER_INDICATOR }
-    );
-    return (
-      userParentPath +
-      STUDIOS_FOLDER +
-      getValidFolderName(
-        `${this.getStudioFileName(studio, { includeIDAddition: true })}`
-      ) +
-      "/"
-    );
-  }
-
-  getStudioPath(studio) {
-    return this.getStudioParentPath(studio) + this.getStudioFileName(studio);
-  }
-
-  async storeStudio(studio) {
-    await dumpJSON(studio, `${this.getStudioPath(studio)}.json`);
-  }
-
-  async storeScratchObject(scratchObject) {
-    if (scratchObject instanceof ScratchUser) {
-      this.storeUser(scratchObject);
-    } else if (scratchObject instanceof ScratchProject) {
-      this.storeProject(scratchObject);
-    } else if (scratchObject instanceof ScratchStudio) {
-      this.storeStudio(scratchObject);
     }
   }
 
@@ -369,30 +206,54 @@ export class ScratchArchive {
     ].flat(2);
 
     [...this.users, ...gatheredUsers].forEach((user) => {
-      if (user && user.id && user.username) {
-        this.userIDToNames[user.id] = user.username;
+      if (user && user.getID() && user.getTitle()) {
+        this.userIDToNames[user.getID()] = user.getTitle();
       }
     });
     [...this.projects, ...gatheredProjects].forEach((project) => {
-      if (project && project.id && project.title) {
-        this.projectIDToTitles[project.id] = project.title;
+      if (project && project.getID() && project.getTitle()) {
+        this.projectIDToTitles[project.getID()] = project.getTitle();
       }
     });
     [...this.studios, ...gatheredStudios].forEach((studio) => {
-      if (studio && studio.id && studio.title) {
-        this.studioIDToTitles[studio.id] = studio.title;
+      if (studio && studio.getID() && studio.getTitle()) {
+        this.studioIDToTitles[studio.getID()] = studio.getTitle();
       }
     });
     this.foundIDToNameConversions = true;
   }
 
+  getTitleFromScratchObject(scratchObject) {
+    if (scratchObject.getID())
+      if (scratchObject instanceof ScratchUser)
+        return this.userIDToNames[scratchObject.getID()];
+      else if (scratchObject instanceof ScratchProject)
+        return this.projectIDToTitles[scratchObject.getID()];
+      else if (scratchObject instanceof ScratchStudio)
+        return this.studioIDToTitles[scratchObject.getID()];
+  }
+
+  applyIDToNameConversions() {
+    this.users
+      .concat(this.projects)
+      .concat(this.studios)
+      .forEach((scratchObject) => {
+        scratchObject.setUsername(
+          this.getUsernameFromID(this.userIDToNames[scratchObject.getUserID()])
+        );
+        scratchObject.setTitle(this.getTitleFromScratchObject(scratchObject));
+      });
+  }
+
   async storeArchive() {
     this.findIDToNameConversions();
+    this.applyIDToNameConversions();
 
     await Promise.all(
-      this.users.map((user) => this.storeUser(user), this),
-      this.projects.map((project) => this.storeProject(project), this),
-      this.studios.map((studio) => this.storeStudio(studio), this)
+      this.users
+        .concat(this.projects)
+        .concat(this.studios)
+        .store(this.archivePath)
     );
   }
 
@@ -465,23 +326,9 @@ export class ScratchArchive {
     await Promise.all(promises);
   }
 
-  async parseFileName(file) {
-    const userIDMatch = file.match(
-      /(.*\/)(([^/]*)( \{(\d+)\})?)?(\/|\.json|\.sb[23]?)$/
-    );
-    return {
-      parentPath: userIDMatch[1],
-      fileName: userIDMatch[2],
-      name: userIDMatch[3],
-      idAddition: userIDMatch[4],
-      id: userIDMatch[5],
-      type: userIDMatch[6],
-    };
-  }
-
   async cleanUpFile(file) {
     const { parentPath, fileName, name, idAddition, id, type } =
-      this.parseFileName(file);
+      parseFileName(file);
 
     let fileNameAddition = type;
     if (type === "/") {
@@ -490,15 +337,15 @@ export class ScratchArchive {
     }
 
     let newFileName;
-    if (name === MISSING_USERNAME_INDICATOR)
-      newFileName = this.getUserFileName({ id: id });
-    else if (name === MISSING_PROJECT_TILE_INDICATOR)
-      newFileName = this.getProjectFileName({ id: id });
-    else if (name === MISSING_STUDIO_TITLE_INDICATOR)
-      newFileName = this.getStudioFileName({ id: id });
+    if (name === ScratchUser.getMissingIndicator())
+      newFileName = this.userIDToNames[id];
+    else if (name === ScratchProject.getMissingIndicator())
+      newFileName = this.projectIDToTitles[id];
+    else if (name === ScratchStudio.getMissingIndicator())
+      newFileName = this.studioIDToTitles[id];
     else return;
 
-    if (fileName !== newFileName) {
+    if (newFileName && fileName !== newFileName) {
       await moveFile(file, parentPath + newFileName + fileNameAddition);
     }
   }
