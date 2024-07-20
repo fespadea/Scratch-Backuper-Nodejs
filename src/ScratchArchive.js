@@ -7,13 +7,16 @@ import { getSessionIDAndXToken, getXToken } from "./ScratchAPI.js";
 import {
   getFolders,
   loadJSONs,
-  loadProjects,
   moveFile,
   getItemsInFolder,
   parseFileName,
 } from "./helperFunctions.js";
+import { dumpJSON } from "./helperFunctions.js";
+import { loadJSON } from "./helperFunctions.js";
+import { removePrivateInformation } from "./helperFunctions.js";
 
 const DEFAULT_ARCHIVE_PATH = "./ScratchArchive/";
+const METADATA_FILE_NAME = "Archive_Metadata";
 
 export class ScratchArchive {
   #authorizations;
@@ -36,16 +39,19 @@ export class ScratchArchive {
   }
 
   async logIn(username, { password, xToken, sessionID }) {
-    const authData = { xToken, sessionID };
+    const authData = {};
     if (password && !sessionID) {
       const loginData = await getSessionIDAndXToken(username, password);
       authData.sessionID = loginData.sessionID;
       authData.xToken = loginData.xToken;
     } else if (sessionID && !xToken) {
+      authData.sessionID = sessionID;
       authData.xToken = await getXToken(sessionID);
+    } else if (xToken) {
+      authData.xToken = xToken;
     }
-    this.#authorizations[username] = authData;
     if (authData.sessionID || authData.xToken) {
+      this.#authorizations[username] = authData;
       this.users.forEach((user) => {
         if (user.getUsername() === username)
           user.updateAuthorization({
@@ -178,6 +184,7 @@ export class ScratchArchive {
     await collectDataPromise;
     if (storeAsYouGo) {
       await Promise.all(this.storePromises);
+      await this.storeMetaData();
     }
   }
 
@@ -239,7 +246,7 @@ export class ScratchArchive {
       .concat(this.studios)
       .forEach((scratchObject) => {
         scratchObject.setUsername(
-          this.getUsernameFromID(this.userIDToNames[scratchObject.getUserID()])
+          this.userIDToNames[scratchObject.getUserID()]
         );
         scratchObject.setTitle(this.getTitleFromScratchObject(scratchObject));
       });
@@ -249,12 +256,59 @@ export class ScratchArchive {
     this.findIDToNameConversions();
     this.applyIDToNameConversions();
 
-    await Promise.all(
-      this.users
+    await Promise.all([
+      ...this.users
         .concat(this.projects)
         .concat(this.studios)
-        .store(this.archivePath)
+        .map((scratchObject) => scratchObject.store(this.archivePath)),
+      this.storeMetaData(),
+    ]);
+  }
+
+  async storeMetaData() {
+    return dumpJSON(this, `${this.archivePath}${METADATA_FILE_NAME}.json`);
+  }
+
+  toJSON() {
+    const metadata = {};
+    metadata.authorizationsUsedInArchive = JSON.parse(
+      removePrivateInformation(JSON.stringify(this.#authorizations))
     );
+    metadata.userMetadatas = this.users.map((user) => user.getMetaData());
+    metadata.projectMetadatas = this.projects.map((project) =>
+      project.getMetaData()
+    );
+    metadata.studioMetadatas = this.studios.map((studio) =>
+      studio.getMetaData()
+    );
+    return metadata;
+  }
+
+  async loadMetadata(metadataPath) {
+    const metadata = await loadJSON(metadataPath);
+    metadata.userMetadatas.forEach((userMetadata) => {
+      this.addUser(new ScratchUser({ baseData: userMetadata }));
+    }, this);
+    metadata.projectMetadatas.forEach((projectMetadata) => {
+      this.addProject(new ScratchProject({ baseData: projectMetadata }));
+    }, this);
+    metadata.studioMetadatas.forEach((studioMetadata) => {
+      this.addStudio(new ScratchStudio({ baseData: studioMetadata }));
+    }, this);
+    if (Object.keys(metadata).length > 0) {
+      const missingAuthorizations = metadata.authorizationsUsedInArchive.filter(
+        (authPlaceHolder) =>
+          this.#authorizations.find(
+            (authData) =>
+              authData.username === authPlaceHolder.username &&
+              (!("sessionID" in Object.keys(authPlaceHolder)) ||
+                "sessionID" in Object.keys(authData))
+          ) < 0
+      );
+      return missingAuthorizations;
+    } else {
+      return {};
+    }
   }
 
   getObjectsWithoutLevels() {
@@ -278,16 +332,8 @@ export class ScratchArchive {
   }
 
   async loadProject(projectFolder) {
-    const projects = await loadProjects(projectFolder);
-    const combinedProjects =
-      projects.length > 0
-        ? projects.reduce((result, current) => Object.assign(result, current))
-        : {};
     (await loadJSONs(projectFolder)).forEach(
-      (projectJSON) =>
-        this.addProject({
-          baseData: Object.assign(projectJSON, combinedProjects),
-        }),
+      (baseData) => this.addProject({ baseData }),
       this
     );
   }
@@ -299,8 +345,8 @@ export class ScratchArchive {
     );
   }
 
-  async loadArchive() {
-    const userFolders = await getFolders(this.archivePath);
+  async loadArchive({ archiveToLoadPath = this.archivePath } = {}) {
+    const userFolders = await getFolders(archiveToLoadPath);
     const promises = [];
     for (const userFolder of userFolders) {
       promises.push(this.loadUser(userFolder));
@@ -324,6 +370,7 @@ export class ScratchArchive {
       );
     }
     await Promise.all(promises);
+    return await loadMetadata(`${archiveToLoadPath}${Archive_Metadata}.json`);
   }
 
   async cleanUpFile(file) {

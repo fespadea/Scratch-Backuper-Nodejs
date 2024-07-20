@@ -14,7 +14,7 @@ export const LIMIT_STRING = "limit";
 export const OFFSET_STRING = "offset";
 export const DATE_LIMIT_STRING = "dateLimit";
 
-const CACHED_REQUESTS_PATH = "./cachedRequests/caschedRequests.db";
+const CACHED_REQUESTS_PATH = "./cachedRequests/cachedRequests.db";
 const cachedRequestsDB = new Datastore({
   filename: CACHED_REQUESTS_PATH,
   autoload: true,
@@ -109,6 +109,10 @@ async function applyReturnFunc(request, returnFunc) {
       ? await request.json()
       : returnFunc === "text"
       ? await request.text()
+      : returnFunc === "body"
+      ? request.body
+      : returnFunc === "null"
+      ? null
       : await eval(`${Object.keys({ request })[0]}.${returnFunc}()`)
     : null;
 }
@@ -273,28 +277,18 @@ export async function getAllResultsDateBased(url, { xToken } = {}) {
 
 export async function downloadProject(
   projectDownloadURL,
-  { sbDownloaderOptions: options, getURLWithParams = (url) => url } = {}
+  { sbDownloaderOptions: options } = {}
 ) {
-  const cachedProject = await loadAPIRequest(projectDownloadURL);
-  if (cachedProject !== undefined) {
-    return JSON.parse(cachedProject);
-  }
-
-  projectDownloadURLWithParams = await getURLWithParams(projectDownloadURL);
-
   let notDone = true;
   let project;
   while (notDone) {
     await limitRate(projectDownloadURL, { scrape: true });
     try {
-      project = await downloadProjectFromURL(
-        projectDownloadURLWithParams,
-        options
-      );
+      project = await downloadProjectFromURL(projectDownloadURL, options);
       notDone = false;
     } catch (error) {
       if (error.status === 503) {
-        console.error(`Project may be broken: ${projectDownloadURLWithParams}`);
+        console.error(`Project may be broken: ${projectDownloadURL}`);
         project = {
           title: "Broken Project",
           type: "txt",
@@ -314,13 +308,12 @@ export async function downloadProject(
         notDone = false;
       } else {
         console.error(
-          `Error with project ${projectDownloadURLWithParams}: ${error.message}`
+          `Error with project ${projectDownloadURL}: ${error.message}`
         );
         await sleep(60000);
       }
     }
   }
 
-  await dumpAPIRequest(projectDownloadURL, JSON.stringify(project));
   return project;
 }

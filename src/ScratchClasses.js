@@ -1,10 +1,15 @@
+import { apiRequest, DATE_LIMIT_STRING } from "./apiRequest.js";
 import {
+  checkFile,
+  dumpImage,
   dumpJSON,
   dumpProject,
   formatID,
+  getFiles,
   getUserDataFromComments,
   getValidFilename,
   getValidFolderName,
+  FORBIDDEN_CHARACTERS,
 } from "./helperFunctions.js";
 import { ProjectAPI, StudioAPI, UserAPI } from "./ScratchAPI.js";
 
@@ -15,6 +20,10 @@ const MISSING_USERNAME_INDICATOR = "-Unable to Acquire Username-";
 const MISSING_PROJECT_TILE_INDICATOR = "-Unable to Acquire Project Title-";
 const MISSING_STUDIO_TITLE_INDICATOR = "-Unable to Acquire Studio Title-";
 const UNKNOWN_USER_INDICATOR = "-Unable to Identify User-";
+
+const PROJECT_TITLE_REGEX = "^(.*)";
+const TIMESTAMP_REGEX = ` (\\d{4}-\\d{2}-\\d{2}T\\d{2}${FORBIDDEN_CHARACTERS[":"]}?\\d{2}${FORBIDDEN_CHARACTERS[":"]}?\\d{2}\\.000Z)`;
+const PROJECT_TYPE_REGEX = "\\.(sb[23]?)$";
 
 class ScratchObject {
   _xToken;
@@ -190,6 +199,20 @@ class ScratchObject {
     return data;
   }
 
+  getMetaData() {
+    const metadata = {};
+    metadata._collected = this.hasCollected();
+    metadata._gathered = this.hasGathered();
+    metadata._level = this.getLevel();
+    Object.assign(metadata, this.getIdentifiers());
+    return metadata;
+  }
+
+  // overwritten by ScratchUser to include username
+  getIdentifiers() {
+    return { id: this.getID() };
+  }
+
   isSameScratchObject(scratchObject) {
     return (
       scratchObject.getID() === this.getID() &&
@@ -221,14 +244,12 @@ class ScratchObject {
   }
 
   getUserPath() {
-    let username = this.getUsername();
-    if (!username) {
-      const userID = this.getUserID();
-      username = userID
-        ? MISSING_USERNAME_INDICATOR + formatID(userID)
-        : UNKNOWN_USER_INDICATOR;
-    }
-    return getValidFolderName(username) + "/";
+    const userID = this.getUserID();
+    const username = this.getUsername();
+    const folderName = userID
+      ? (username ? username : MISSING_USERNAME_INDICATOR) + formatID(userID)
+      : UNKNOWN_USER_INDICATOR;
+    return getValidFolderName(folderName) + "/";
   }
 
   // gets overwritten by ScratchUser to return getUserPath()
@@ -242,9 +263,32 @@ class ScratchObject {
     return archivePath + this.getParentPath() + this.getFileName();
   }
 
+  getImageLinks() {
+    throw new Error(`getImageLinks not implemented in ${this.constructor}`);
+  }
+
+  async storeImages(archivePath) {
+    const imageParentPath = archivePath + this.getParentPath();
+    await Promise.all(
+      this.getImageLinks().map(async (imageLink) => {
+        const imagePath = imageParentPath + imageLink.match(/\/([^/]+.png)/)[1];
+        if (!(await checkFile(imagePath))) {
+          const imageStream = await apiRequest(imageLink, {
+            cache: false,
+            returnFunc: "body",
+          });
+          await dumpImage(imageStream, imagePath);
+        }
+      })
+    );
+  }
+
   // gets overwritten by ScratchProject to also store projects
   async store(archivePath) {
-    return dumpJSON(this, `${this.getPath(archivePath)}.json`);
+    await Promise.all([
+      dumpJSON(this, `${this.getPath(archivePath)}.json`),
+      this.storeImages(archivePath),
+    ]);
   }
 }
 
@@ -292,8 +336,20 @@ export class ScratchUser extends ScratchObject {
     return this.getID();
   }
 
+  getImageLinks() {
+    return this.profile && this.profile.images
+      ? Object.values(this.profile.images)
+      : [];
+  }
+
   static getMissingIndicator() {
     return MISSING_USERNAME_INDICATOR;
+  }
+
+  getIdentifiers() {
+    return Object.assign(super.getIdentifiers(), {
+      username: this.getUsername(),
+    });
   }
 
   getMissingIndicator() {
@@ -302,15 +358,6 @@ export class ScratchUser extends ScratchObject {
 
   getParentPath() {
     return this.getUserPath();
-  }
-
-  async store(archivePath) {
-    const projectPath = archivePath + this.getParentPath();
-    return Promise.all([
-      super.store(archivePath),
-      dumpProject(this._project, projectPath),
-      dumpProject(this._waybackProject, projectPath),
-    ]);
   }
 
   async addUserInfo() {
@@ -515,6 +562,12 @@ export class ScratchProject extends ScratchObject {
     return PROJECTS_FOLDER;
   }
 
+  getImageLinks() {
+    const imageLinks = this.images ? Object.values(this.images) : [];
+    if (this.image) imageLinks.push(this.image);
+    return imageLinks;
+  }
+
   async addProjectInfo() {
     const projectData = await ProjectAPI.getProjectInfo(this.id, {
       xToken: this._xToken,
@@ -549,71 +602,11 @@ export class ScratchProject extends ScratchObject {
     this.#handleUsernameRequiredCall(ProjectAPI.getComments, "comments");
   }
 
-  async #handleProjectAdd(apiCall, projectVariableName) {
-    const options = {
-      // // May be called periodically with progress updates.
-      // onProgress: (type, loaded, total) => {
-      //   // type is 'metadata', 'project', 'assets', or 'compress'
-      //   console.log(type, loaded / total);
-      // },
-    };
-    // _xToken only used by ProjectAPI.getProjectFromScratch
-    const project = await apiCall(this.id, { options, xToken: this._xToken });
-    if (project) {
-      if (this.title) {
-        project.title = this.title;
-      } else {
-        if (project.title !== "") this.title = project.title;
-      }
-      this.addData({ [projectVariableName]: project });
-    }
-  }
-
-  // add functions that cache downloaded projects
-  async addProjectFromWaybackMachine() {
-    const projectVariableName =
-      "_project" in this ? "_waybackProject" : "_project";
-    await this.#handleProjectAdd(
-      ProjectAPI.getProjectFromWaybackMachine,
-      projectVariableName
-    );
-  }
-
-  async addProject() {
-    await this.#handleProjectAdd(ProjectAPI.getProjectFromScratch, "_project");
-    if (!("_project" in this)) {
-      await this.addProjectFromWaybackMachine();
-    } else if ("history" in this && "modified" in this.history) {
-      const waybackAvailability =
-        await ProjectAPI.getProjectWaybackAvailability(this.id);
-
-      if (
-        waybackAvailability.archived_snapshots &&
-        waybackAvailability.archived_snapshots.closest
-      ) {
-        const availableDate = new Date(
-          waybackAvailability.archived_snapshots.closest.timestamp.replace(
-            /^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)$/,
-            "$4:$5:$6 $2/$3/$1"
-          )
-        );
-        const lastModifiedDate = new Date(this.history.modified);
-
-        if (availableDate < lastModifiedDate) {
-          await this.addProjectFromWaybackMachine();
-          if ("_waybackProject" in this) {
-            this._waybackProject.date = availableDate;
-          }
-        }
-      }
-    }
-  }
-
   async childCollectData() {
     // call these now because they don't require the project author's username,
     // but don't await them till after the projectInfo call when we can call the
     // rest of the data functions
-    const nonUsernameReliantCalls = [this.addRemixes(), this.addProject()];
+    const nonUsernameReliantCalls = [this.addRemixes()];
 
     if (!this.author || !this.author.username) {
       await this.addProjectInfo();
@@ -646,6 +639,78 @@ export class ScratchProject extends ScratchObject {
 
   gatherStudios() {
     return super.gatherStudios([this.studios]);
+  }
+
+  async #handleProjectGet(downloadProject, { olderThanDate } = {}) {
+    const sbDownloaderOptions = {
+      // // May be called periodically with progress updates.
+      // onProgress: (type, loaded, total) => {
+      //   // type is 'metadata', 'project', 'assets', or 'compress'
+      //   console.log(type, loaded / total);
+      // },
+    };
+    const project = await downloadProject(this.getID(), {
+      sbDownloaderOptions,
+      xToken: this._xToken,
+      olderThanDate,
+    });
+    return project;
+  }
+
+  async storeProjects(archivePath) {
+    const fileName = this.getFileName();
+    const projectParentPath = archivePath + this.getParentPath();
+    const projectPath = archivePath + this.getParentPath() + fileName;
+    const files = await getFiles(projectParentPath);
+    let project;
+    if (
+      !files.some((file) =>
+        new RegExp(fileName + PROJECT_TYPE_REGEX).test(file)
+      )
+    ) {
+      project = await this.#handleProjectGet(ProjectAPI.getProjectFromScratch);
+    }
+
+    let getFromWayback = false;
+    let lastModifiedDate;
+    if (
+      !files.some((file) =>
+        new RegExp(fileName + TIMESTAMP_REGEX + PROJECT_TYPE_REGEX).test(file)
+      )
+    ) {
+      if (project) {
+        if (this.history && this.history.modified) {
+          lastModifiedDate = new Date(this.history.modified);
+          getFromWayback = true;
+        }
+      } else {
+        getFromWayback = true;
+      }
+    }
+
+    return Promise.all([
+      dumpProject(project, projectPath),
+      (async () => {
+        if (getFromWayback) {
+          await dumpProject(
+            await this.#handleProjectGet(
+              ProjectAPI.getProjectFromWaybackMachine,
+              {
+                olderThanDate: lastModifiedDate,
+              }
+            ),
+            projectPath
+          );
+        }
+      })(),
+    ]);
+  }
+
+  async store(archivePath) {
+    return Promise.all([
+      super.store(archivePath),
+      this.storeProjects(archivePath),
+    ]);
   }
 }
 
@@ -702,6 +767,10 @@ export class ScratchStudio extends ScratchObject {
 
   getSubFolder() {
     return STUDIOS_FOLDER;
+  }
+
+  getImageLinks() {
+    return this.image ? this.image : [];
   }
 
   async addStudioInfo() {

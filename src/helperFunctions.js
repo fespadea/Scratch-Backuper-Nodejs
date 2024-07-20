@@ -26,7 +26,7 @@ const RESERVED_FILE_NAMES = [
   "LPT9",
 ];
 const ASCII_CONTROL_CHARACTERS = /[\u0000-\u001F\u007F-\u009F]/g;
-const FORBIDDEN_CHARACTERS = {
+export const FORBIDDEN_CHARACTERS = {
   "<": "＜",
   ">": "＞",
   ":": "∶",
@@ -38,10 +38,6 @@ const FORBIDDEN_CHARACTERS = {
   "*": "＊",
 };
 
-const PROJECT_TITLE_REGEX = "^(.*)";
-const TIME_STAMP_REGEX = ` (\\d{4}-\\d{2}-\\d{2}T\\d{2}${FORBIDDEN_CHARACTERS[":"]}?\\d{2}${FORBIDDEN_CHARACTERS[":"]}?\\d{2}\\.000Z)`;
-const PROJECT_TYPE_REGEX = "\\.(sb[23]?)$";
-
 /**
  * @param {string} fileName
  * @returns string
@@ -49,7 +45,7 @@ const PROJECT_TYPE_REGEX = "\\.(sb[23]?)$";
 export function getValidFilename(fileName, useHomoglyphs = true) {
   let safeFileName = fileName;
   Object.entries(FORBIDDEN_CHARACTERS).forEach(([key, value]) => {
-    safeFileName = safeFileName.replace(key, useHomoglyphs ? value : "");
+    safeFileName = safeFileName.replaceAll(key, useHomoglyphs ? value : "");
   });
   safeFileName.replace(ASCII_CONTROL_CHARACTERS, "");
   return safeFileName;
@@ -94,6 +90,23 @@ export async function dumpProject(project, projectPath) {
         `.${project.type}`
     );
     await fs.writeFile(projectPath, Buffer.from(project.arrayBuffer), {
+      flag: "w",
+    });
+  }
+}
+
+export async function checkFile(filePath) {
+  try {
+    return await fs.access(filePath);
+  } catch (err) {
+    return null;
+  }
+}
+
+export async function dumpImage(imageStream, imagePath) {
+  if (imageStream) {
+    await fs.mkdir(path.dirname(imagePath), { recursive: true });
+    await fs.writeFile(imagePath, imageStream, {
       flag: "w",
     });
   }
@@ -157,61 +170,6 @@ export async function loadJSONs(folderPath) {
       (await getFiles(folderPath))
         .filter((file) => /.json$/.test(file))
         .map((jsonFile) => loadJSON(jsonFile))
-    );
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return [];
-    } else {
-      throw error;
-    }
-  }
-}
-
-export async function loadProject(filePath) {
-  try {
-    const project = {};
-    project.arrayBuffer = Buffer.from(await fs.readFile(filePath));
-    const fileName = filePath.split("\\").pop().split("/").pop();
-    // note that the colons aren't present in the time in the filename because
-    // windows doesn't allow colons in file names (also, wayback machine doesn't
-    // track ms, so I just assume 000)
-    let matches = fileName.match(
-      new RegExp(PROJECT_TITLE_REGEX + TIME_STAMP_REGEX + PROJECT_TYPE_REGEX)
-    );
-    let projectVariableName = "_waybackProject";
-    if (matches === null) {
-      matches = fileName.match(
-        new RegExp(PROJECT_TITLE_REGEX + PROJECT_TYPE_REGEX)
-      );
-      projectVariableName = "_project";
-      project.type = matches[2];
-    } else {
-      project.date = new Date(
-        matches[2].slice(0, 13) +
-          ":" +
-          matches[2].slice(13, 15) +
-          ":" +
-          matches[2].slice(15)
-      );
-      project.type = matches[3];
-    }
-    project.title = matches[1];
-    return { [projectVariableName]: project };
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return {};
-    } else {
-      throw error;
-    }
-  }
-}
-
-export async function loadProjects(folderPath) {
-  try {
-    return Promise.all(
-      (await getFiles(folderPath))
-        .filter((file) => new RegExp(PROJECT_TYPE_REGEX).test(file))
-        .map((projectFile) => loadProject(projectFile))
     );
   } catch (error) {
     if (error.code === "ENOENT") {

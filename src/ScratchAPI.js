@@ -19,8 +19,8 @@ const STUDIO_API = SCRATCH_API + "/studios/";
 const SCRATCH_SITE_API = "https://scratch.mit.edu/site-api";
 const SCRATCH_SITE = "https://scratch.mit.edu";
 // API acted inconsistent if I didn't include a timestamp
-const WAYBACK_MACHINE_AVAILABILITY_API =
-  "https://archive.org/wayback/available?timestamp=0&url=";
+const WAYBACK_MACHINE_BASE = "https://web.archive.org/web/";
+const WAYBACK_MACHINE_BASE_TIMESTAMP = "0/";
 const SCRATCH_PROJECT_DOWNLOAD_API = "https://projects.scratch.mit.edu/";
 const SCRATCH_MESSAGES_AJAX_API = "https://scratch.mit.edu/messages/ajax/";
 
@@ -316,45 +316,83 @@ export class ProjectAPI {
     else return undefined;
   }
 
-  static async getProjectFromScratch(projectID, { options, xToken } = {}) {
-    const getURLWithParams = async (url) => {
-      const params = new URLSearchParams();
-      params.set(
-        PROJECT_TOKEN_STRING,
-        await ProjectAPI.getProjectToken(projectID, { xToken })
-      );
-      return applyParametersToURL(url, params);
-    };
+  static async getProjectFromScratch(
+    projectID,
+    { sbDownloaderOptions, xToken } = {}
+  ) {
+    const params = new URLSearchParams();
+    params.set(
+      PROJECT_TOKEN_STRING,
+      await ProjectAPI.getProjectToken(projectID, { xToken })
+    );
 
-    return await downloadProject(SCRATCH_PROJECT_DOWNLOAD_API + projectID, {
-      sbDownloaderOptions: options,
-      getURLWithParams,
-    });
+    return await downloadProject(
+      applyParametersToURL(SCRATCH_PROJECT_DOWNLOAD_API + projectID, params),
+      {
+        sbDownloaderOptions,
+      }
+    );
   }
 
   static async getProjectWaybackAvailability(projectID) {
-    return await apiRequest(
-      WAYBACK_MACHINE_AVAILABILITY_API +
+    const { headers } = await apiRequest(
+      WAYBACK_MACHINE_BASE +
+        WAYBACK_MACHINE_BASE_TIMESTAMP +
         SCRATCH_PROJECT_DOWNLOAD_API +
-        projectID
+        projectID,
+      {
+        returnHeaders: true,
+        returnFunc: "null",
+      }
     );
+    if (headers.link) {
+      const availableDate = headers.link.match(
+        new RegExp(
+          WAYBACK_MACHINE_BASE +
+            "(\\d+)/" +
+            SCRATCH_PROJECT_DOWNLOAD_API +
+            projectID +
+            "[^<]*$"
+        )
+      )[1];
+      return availableDate === WAYBACK_MACHINE_BASE_TIMESTAMP
+        ? null
+        : availableDate;
+    }
+    return null;
   }
 
-  static async getProjectFromWaybackMachine(projectID, { options } = {}) {
-    const availabilityRequest = await ProjectAPI.getProjectWaybackAvailability(
+  static async getProjectFromWaybackMachine(
+    projectID,
+    { sbDownloaderOptions, olderThanDate } = {}
+  ) {
+    const availableDateRequest = await ProjectAPI.getProjectWaybackAvailability(
       projectID
     );
 
-    if (
-      availabilityRequest.archived_snapshots &&
-      availabilityRequest.archived_snapshots.closest
-    ) {
-      const url = availabilityRequest.archived_snapshots.closest.url.replace(
-        "/" + SCRATCH_PROJECT_DOWNLOAD_API,
-        "_if/" + SCRATCH_PROJECT_DOWNLOAD_API
+    if (availableDateRequest) {
+      const availableDate = new Date(
+        availableDateRequest.replace(
+          /^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)$/,
+          "$4:$5:$6 $2/$3/$1"
+        )
       );
-      return await downloadProject(url, { sbDownloaderOptions: options });
+
+      if (!olderThanDate || availableDate < olderThanDate) {
+        const url =
+          WAYBACK_MACHINE_BASE +
+          availableDateRequest +
+          "_if/" +
+          SCRATCH_PROJECT_DOWNLOAD_API +
+          projectID;
+        const project = await downloadProject(url, {
+          sbDownloaderOptions,
+        });
+        if (project) project.date = availableDate;
+        return project;
+      }
     }
+    return null;
   }
 }
 
