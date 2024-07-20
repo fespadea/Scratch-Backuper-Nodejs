@@ -17,8 +17,9 @@ export const DATE_LIMIT_STRING = "dateLimit";
 const CACHED_REQUESTS_PATH = "./cachedRequests/cachedRequests.db";
 const cachedRequestsDB = new Datastore({
   filename: CACHED_REQUESTS_PATH,
-  autoload: true,
+  // autoload: true,
 });
+let needToLoadDatabase = true;
 
 let markedIDs = new Set();
 let progressChecker = 0;
@@ -40,12 +41,20 @@ export async function limitRate(url, { scrape = false } = {}) {
     );
 }
 
+async function loadCachedRequestsDatabase() {
+  if (needToLoadDatabase) {
+    needToLoadDatabase = false;
+    await cachedRequestsDB.loadDatabaseAsync();
+  }
+}
+
 /**
  *
  * @param {string} id
  * @param {object} data
  */
 async function dumpAPIRequest(id, data) {
+  await loadCachedRequestsDatabase();
   id = removePrivateInformation(id);
   if (data === undefined) {
     throw new Error("data cannot be undefined");
@@ -70,15 +79,11 @@ async function dumpAPIRequest(id, data) {
  * @returns
  */
 async function loadAPIRequest(id) {
+  await loadCachedRequestsDatabase();
   id = removePrivateInformation(id);
   const result = await cachedRequestsDB.findOneAsync({
     _id: id,
   });
-  if (result === undefined) {
-    await cachedRequestsDB.removeAsync({
-      _id: id,
-    });
-  }
   if (result === null) {
     if (markedIDs.has(id)) {
       while (markedIDs.has(id)) {

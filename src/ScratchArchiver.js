@@ -7,11 +7,11 @@ async function runArchive() {
   const scratchArchive = new ScratchArchive();
   await scratchArchive.logIn(username, { password });
   // scratchArchive.addUser({ username: "fespadea", level: 0 });
-  scratchArchive.addProject({
-    projectID: 56085616,
-    username: "fespadea",
-    level: 0,
-  });
+  // scratchArchive.addProject({
+  //   projectID: 56085616,
+  //   username: "fespadea",
+  //   level: 0,
+  // });
   // scratchArchive.addUser({ username: "Fespadea_Tester", level: 1 });
   // scratchArchive.addUser({ username: "Paperboy200", level: 1 });
   // scratchArchive.addUser({ username: "100codelyoko", level: 1 });

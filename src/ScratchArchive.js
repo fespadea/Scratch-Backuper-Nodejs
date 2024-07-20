@@ -2,6 +2,8 @@ import {
   ScratchProject,
   ScratchUser,
   ScratchStudio,
+  PROJECTS_FOLDER,
+  STUDIOS_FOLDER,
 } from "./ScratchClasses.js";
 import { getSessionIDAndXToken, getXToken } from "./ScratchAPI.js";
 import {
@@ -167,7 +169,6 @@ export class ScratchArchive {
   }
 
   async completeDataSweeps({ storeAsYouGo = false, numSweeps = -1 } = {}) {
-    let collectDataPromise = this.collectData({ storeAsYouGo });
     if (numSweeps === -1) {
       numSweeps = Math.max(
         ...this.users
@@ -177,11 +178,9 @@ export class ScratchArchive {
       );
     }
     for (let i = 0; i < numSweeps; i++) {
-      await collectDataPromise;
+      await this.collectData({ storeAsYouGo });
       this.gatherScratchObjects();
-      collectDataPromise = this.collectData({ storeAsYouGo });
     }
-    await collectDataPromise;
     if (storeAsYouGo) {
       await Promise.all(this.storePromises);
       await this.storeMetaData();
@@ -190,54 +189,38 @@ export class ScratchArchive {
 
   findIDToNameConversions() {
     if (this.foundIDToNameConversions) return;
-    const gatherFromScratchObject = (scratchObject) =>
-      scratchObject.gatherObjects({ checkGathered: false });
-    const gatheredFromUsers = this.users.map(gatherFromScratchObject);
-    const gatheredFromProjects = this.projects.map(gatherFromScratchObject);
-    const gatheredFromStudios = this.studios.map(gatherFromScratchObject);
 
-    const gatheredUsers = [
-      gatheredFromUsers.gatheredUsers,
-      gatheredFromProjects.gatheredUsers,
-      gatheredFromStudios.gatheredUsers,
-    ].flat(2);
-    const gatheredProjects = [
-      gatheredFromUsers.gatheredProjects,
-      gatheredFromProjects.gatheredProjects,
-      gatheredFromStudios.gatheredProjects,
-    ].flat(2);
-    const gatheredStudios = [
-      gatheredFromUsers.gatheredStudios,
-      gatheredFromProjects.gatheredStudios,
-      gatheredFromStudios.gatheredStudios,
-    ].flat(2);
-
-    [...this.users, ...gatheredUsers].forEach((user) => {
-      if (user && user.getID() && user.getTitle()) {
+    this.users.forEach((user) => {
+      if (user.getID() && user.getTitle()) {
         this.userIDToNames[user.getID()] = user.getTitle();
       }
     });
-    [...this.projects, ...gatheredProjects].forEach((project) => {
-      if (project && project.getID() && project.getTitle()) {
+    this.projects.forEach((project) => {
+      if (project.getID() && project.getTitle()) {
         this.projectIDToTitles[project.getID()] = project.getTitle();
       }
     });
-    [...this.studios, ...gatheredStudios].forEach((studio) => {
-      if (studio && studio.getID() && studio.getTitle()) {
+    this.studios.forEach((studio) => {
+      if (studio.getID() && studio.getTitle()) {
         this.studioIDToTitles[studio.getID()] = studio.getTitle();
       }
     });
     this.foundIDToNameConversions = true;
   }
 
-  getTitleFromScratchObject(scratchObject) {
-    if (scratchObject.getID())
-      if (scratchObject instanceof ScratchUser)
-        return this.userIDToNames[scratchObject.getID()];
+  getTitleFromScratchObject({ scratchObject, userID, projectID, studioID }) {
+    this.findIDToNameConversions();
+
+    if (scratchObject && scratchObject.getID())
+      if (scratchObject instanceof ScratchUser) userID = scratchObject.getID();
       else if (scratchObject instanceof ScratchProject)
-        return this.projectIDToTitles[scratchObject.getID()];
+        projectID = scratchObject.getID();
       else if (scratchObject instanceof ScratchStudio)
-        return this.studioIDToTitles[scratchObject.getID()];
+        studioID = scratchObject.getID();
+
+    if (userID) return this.userIDToNames[userID];
+    else if (projectID) return this.projectIDToTitles[projectID];
+    else if (studioID) return this.studioIDToTitles[studioID];
   }
 
   applyIDToNameConversions() {
@@ -246,14 +229,19 @@ export class ScratchArchive {
       .concat(this.studios)
       .forEach((scratchObject) => {
         scratchObject.setUsername(
-          this.userIDToNames[scratchObject.getUserID()]
+          this.userIDToNames[
+            this.getTitleFromScratchObject({
+              userID: scratchObject.getUserID(),
+            })
+          ]
         );
-        scratchObject.setTitle(this.getTitleFromScratchObject(scratchObject));
+        scratchObject.setTitle(
+          this.getTitleFromScratchObject({ scratchObject })
+        );
       });
   }
 
   async storeArchive() {
-    this.findIDToNameConversions();
     this.applyIDToNameConversions();
 
     await Promise.all([
@@ -296,11 +284,13 @@ export class ScratchArchive {
       this.addStudio(new ScratchStudio({ baseData: studioMetadata }));
     }, this);
     if (Object.keys(metadata).length > 0) {
-      const missingAuthorizations = metadata.authorizationsUsedInArchive.filter(
-        (authPlaceHolder) =>
-          this.#authorizations.find(
-            (authData) =>
-              authData.username === authPlaceHolder.username &&
+      const missingAuthorizations = Object.entries(
+        metadata.authorizationsUsedInArchive
+      ).filter(
+        (usernamePlaceHolder, authPlaceHolder) =>
+          Object.entries(this.#authorizations).find(
+            (username, authData) =>
+              username === usernamePlaceHolder &&
               (!("sessionID" in Object.keys(authPlaceHolder)) ||
                 "sessionID" in Object.keys(authData))
           ) < 0
@@ -370,7 +360,9 @@ export class ScratchArchive {
       );
     }
     await Promise.all(promises);
-    return await loadMetadata(`${archiveToLoadPath}${Archive_Metadata}.json`);
+    return await this.loadMetadata(
+      `${archiveToLoadPath}${METADATA_FILE_NAME}.json`
+    );
   }
 
   async cleanUpFile(file) {
@@ -385,11 +377,11 @@ export class ScratchArchive {
 
     let newFileName;
     if (name === ScratchUser.getMissingIndicator())
-      newFileName = this.userIDToNames[id];
+      newFileName = this.getTitleFromScratchObject({ userID: id });
     else if (name === ScratchProject.getMissingIndicator())
-      newFileName = this.projectIDToTitles[id];
+      newFileName = this.getTitleFromScratchObject({ projectID: id });
     else if (name === ScratchStudio.getMissingIndicator())
-      newFileName = this.studioIDToTitles[id];
+      newFileName = this.getTitleFromScratchObject({ studio: id });
     else return;
 
     if (newFileName && fileName !== newFileName) {
@@ -398,7 +390,6 @@ export class ScratchArchive {
   }
 
   async cleanUpArchive() {
-    this.findIDToNameConversions();
     await this.cleanUpFile(ScratchArchive);
   }
 }

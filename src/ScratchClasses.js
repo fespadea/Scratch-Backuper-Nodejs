@@ -13,8 +13,8 @@ import {
 } from "./helperFunctions.js";
 import { ProjectAPI, StudioAPI, UserAPI } from "./ScratchAPI.js";
 
-const PROJECTS_FOLDER = "projects/";
-const STUDIOS_FOLDER = "studios/";
+export const PROJECTS_FOLDER = "projects/";
+export const STUDIOS_FOLDER = "studios/";
 
 const MISSING_USERNAME_INDICATOR = "-Unable to Acquire Username-";
 const MISSING_PROJECT_TILE_INDICATOR = "-Unable to Acquire Project Title-";
@@ -99,7 +99,7 @@ class ScratchObject {
   }
 
   setLevel(level) {
-    this._level = isNaN(level) ? level : max(level, 0);
+    this._level = isNaN(level) ? level : Math.max(level, 0);
   }
 
   setLevelIfHigher(level) {
