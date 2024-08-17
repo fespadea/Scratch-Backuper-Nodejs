@@ -203,45 +203,6 @@ export async function isDirectory(path) {
   }
 }
 
-export class SimpleRateLimiter {
-  constructor(interval, tokensPerInterval) {
-    this.interval = interval;
-    this.tokensPerInterval = tokensPerInterval;
-    this.tokensLeft = new Proxy(
-      {},
-      {
-        get: function (target, name) {
-          return target.hasOwnProperty(name) ? target[name] : tokensPerInterval;
-        },
-      }
-    );
-    this.lastTime = new Proxy(
-      {},
-      {
-        get: function (target, name) {
-          return target.hasOwnProperty(name) ? target[name] : 0;
-        },
-      }
-    );
-  }
-
-  async removeTokens(tokens, hostname) {
-    const timeLeft = this.lastTime[hostname] + this.interval - Date.now();
-    if (timeLeft <= 0) {
-      this.tokensLeft[hostname] = this.tokensPerInterval;
-      this.lastTime[hostname] = Date.now();
-    }
-    if (tokens <= this.tokensLeft[hostname]) {
-      this.tokensLeft[hostname] -= tokens;
-    } else {
-      const tokensToPass = tokens - this.tokensLeft[hostname];
-      this.tokensLeft[hostname] = 0;
-      await sleep(timeLeft);
-      this.removeTokens(tokensToPass);
-    }
-  }
-}
-
 const UNSAFE_KEYS = [
   "x-token",
   "scratchsessionsid",
@@ -327,4 +288,59 @@ export async function parseFileName(file) {
 export function formatID(id) {
   if (id) return ` {${id}}`;
   else return "";
+}
+
+export function updateObjectValue(superObject, key, newValue) {
+  if (newValue === null || newValue === undefined) {
+    return;
+  } else if (
+    !(newValue instanceof Object) ||
+    !(superObject[key] instanceof Object) ||
+    Array.isArray(newValue) !== Array.isArray(superObject[key])
+  ) {
+    if (superObject[key] === newValue) {
+      return;
+    }
+    superObject[key] = newValue;
+  } else if (Array.isArray(newValue) && Array.isArray(superObject[key])) {
+    const oldArray = superObject[key];
+    const newArray = [...newValue];
+    const newDistancesFromEnd = Array(oldArray.length);
+    for (let i = 0; i < oldArray.length; i++) {
+      const oldArrayItem = oldArray[i];
+      let findFunction = (newArrayItem) => oldArrayItem === newArrayItem;
+      if (oldArrayItem.id !== undefined) {
+        findFunction = (newArrayItem) => oldArrayItem.id === newArrayItem.id;
+      }
+      const newObjectIndex = newArray.findIndex(findFunction);
+      if (newObjectIndex > -1) {
+        if (oldArrayItem instanceof Object) {
+          updateObjectValue(oldArray, i, newArray[newObjectIndex]);
+          newArray[newObjectIndex] = oldArrayItem;
+        }
+        newDistancesFromEnd[i] = newArray.length - newObjectIndex;
+      }
+    }
+    let newDistanceFromEnd = 0;
+    for (let i = newDistancesFromEnd.length - 1; i >= 0; i--) {
+      const originalDistanceFromEnd = oldArray.length - i;
+      if (newDistancesFromEnd[i] === undefined) {
+        const newIndex = newArray.length - newDistanceFromEnd;
+        newArray.splice(newIndex, 0, oldArray[i]);
+        newDistancesFromEnd[i] = newDistanceFromEnd;
+        for (let j = 0; j < newDistancesFromEnd.length; j++) {
+          if (newDistancesFromEnd[j] > newDistanceFromEnd)
+            newDistancesFromEnd[j]++;
+        }
+      }
+      if (newDistancesFromEnd[i] <= originalDistanceFromEnd) {
+        newDistanceFromEnd++;
+      }
+    }
+    superObject[key] = newArray;
+  } else {
+    Object.keys(newValue).forEach((subKey) =>
+      updateObjectValue(superObject[key], subKey, newValue[subKey])
+    );
+  }
 }

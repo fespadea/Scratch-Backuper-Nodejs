@@ -507,7 +507,6 @@ class ActivityAPI {
     { userID } = {}
   ) {
     const activity = {};
-    // activity.id; // no way for me to get this
 
     const typeElement = activityElement.querySelector("div");
     activity.type = typeElement.textContent
@@ -523,13 +522,6 @@ class ActivityAPI {
       }
     }
     if (userID) activity.actor_id = userID;
-
-    // not exact
-    const timeElement = activityElement.querySelector(".time");
-    activity.datetime_created = subtractTimeStringFromDate(
-      timeElement.textContent,
-      currentTime
-    );
 
     const targetElements = activityElement.getElementsByTagName("a");
     for (const targetElement of targetElements) {
@@ -548,6 +540,19 @@ class ActivityAPI {
         activity[type + "_title"] = name;
       }
     }
+
+    // I just combined all the values to make a hopefully unique id because I
+    // don't have access to the actual id in the html. I exclude the
+    // datetime_created because I can't get the exact value, so it may change
+    // for different calls of this function for the same activity.
+    activity.id = Object.values(activity).join();
+
+    // not exact
+    const timeElement = activityElement.querySelector(".time");
+    activity.datetime_created = subtractTimeStringFromDate(
+      timeElement.textContent,
+      currentTime
+    );
 
     return activity;
   }

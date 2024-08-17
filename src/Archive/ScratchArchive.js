@@ -4,18 +4,18 @@ import {
   ScratchStudio,
   PROJECTS_FOLDER,
   STUDIOS_FOLDER,
-} from "./ScratchClasses.js";
-import { getSessionIDAndXToken, getXToken } from "./ScratchAPI.js";
+} from "../ScratchData/ScratchObjects.js";
+import { getSessionIDAndXToken, getXToken } from "../util/ScratchAPI.js";
 import {
   getFolders,
   loadJSONs,
   moveFile,
   getItemsInFolder,
   parseFileName,
-} from "./helperFunctions.js";
-import { dumpJSON } from "./helperFunctions.js";
-import { loadJSON } from "./helperFunctions.js";
-import { removePrivateInformation } from "./helperFunctions.js";
+} from "../util/helperFunctions.js";
+import { dumpJSON } from "../util/helperFunctions.js";
+import { loadJSON } from "../util/helperFunctions.js";
+import { removePrivateInformation } from "../util/helperFunctions.js";
 
 const DEFAULT_ARCHIVE_PATH = "./ScratchArchive/";
 const METADATA_FILE_NAME = "Archive_Metadata";

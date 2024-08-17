@@ -4,9 +4,9 @@ import { URL } from "url";
 import { downloadProjectFromURL } from "@turbowarp/sbdl";
 import {
   sleep,
-  SimpleRateLimiter,
   removePrivateInformation,
 } from "./helperFunctions.js";
+import { SimpleRateLimiter } from "./SimpleRateLimiter.js";
 
 export const XTOKEN_STRING = "x-token";
 export const PROJECT_TOKEN_STRING = "token";
@@ -17,9 +17,10 @@ export const DATE_LIMIT_STRING = "dateLimit";
 const CACHED_REQUESTS_PATH = "./cachedRequests/cachedRequests.db";
 const cachedRequestsDB = new Datastore({
   filename: CACHED_REQUESTS_PATH,
-  // autoload: true,
+  timestampData: true,
 });
 let needToLoadDatabase = true;
+const DEFAULT_NEWER_THAN = new Date(0);
 
 let markedIDs = new Set();
 let progressChecker = 0;
@@ -53,7 +54,7 @@ async function loadCachedRequestsDatabase() {
  * @param {string} id
  * @param {object} data
  */
-async function dumpAPIRequest(id, data) {
+async function cacheAPIRequest(id, data) {
   await loadCachedRequestsDatabase();
   id = removePrivateInformation(id);
   if (data === undefined) {
@@ -78,18 +79,18 @@ async function dumpAPIRequest(id, data) {
  * @param {string} id
  * @returns
  */
-async function loadAPIRequest(id) {
+async function loadAPIRequest(id, { newerThan = DEFAULT_NEWER_THAN } = {}) {
   await loadCachedRequestsDatabase();
   id = removePrivateInformation(id);
   const result = await cachedRequestsDB.findOneAsync({
     _id: id,
   });
-  if (result === null) {
+  if (result === null || result.updatedAt < newerThan) {
     if (markedIDs.has(id)) {
       while (markedIDs.has(id)) {
         await sleep(1000);
       }
-      return await loadAPIRequest(id);
+      return await loadAPIRequest(id, { newerThan });
     } else {
       markedIDs.add(id);
     }
@@ -137,6 +138,7 @@ export async function apiRequest(
     returnFunc = "json",
     returnHeaders = false,
     forceUpdate = false,
+    newerThan = DEFAULT_NEWER_THAN,
   } = {}
 ) {
   const id = JSON.stringify({
@@ -147,7 +149,7 @@ export async function apiRequest(
   });
 
   if (cache && !forceUpdate) {
-    const cachedData = await loadAPIRequest(id);
+    const cachedData = await loadAPIRequest(id, { newerThan });
     if (cachedData !== undefined) {
       return cachedData;
     }
@@ -192,7 +194,7 @@ export async function apiRequest(
     : data;
 
   if (cache) {
-    await dumpAPIRequest(id, returnVal);
+    await cacheAPIRequest(id, returnVal);
   }
 
   if (++progressChecker % 100 === 0) {

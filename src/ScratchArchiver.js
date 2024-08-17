@@ -1,4 +1,4 @@
-import { ScratchArchive } from "./ScratchArchive.js";
+import { ScratchArchive } from "./Archive/ScratchArchive.js";
 
 const username = process.env.SCRATCH_USERNAME;
 const password = process.env.SCRATCH_PASSWORD;
